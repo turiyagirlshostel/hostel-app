@@ -524,7 +524,7 @@ function DonutChart({ pct, color, size = 90 }) {
 }
 
 // ── HOME PAGE ─────────────────────────────────────────────────
-function HomePage({ rooms, setPage, setActiveFloor, today }) {
+function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
   const all = Object.values(rooms);
   const totalBeds = all.reduce((s, r) => s + r.beds, 0);
   const totalOcc = all.reduce((s, r) => s + getOccupied(r), 0);
@@ -562,8 +562,8 @@ function HomePage({ rooms, setPage, setActiveFloor, today }) {
         <p style={{ margin: 0, color: "#64748b", fontSize: 14 }}>3 floors · {all.length} rooms · {totalBeds} beds total</p>
       </div>
 
-      {/* Rent alerts banner */}
-      {(dueToday.length > 0 || dueSoon.length > 0) && (
+      {/* Rent alerts banner (managers/admins only) */}
+      {isManager && (dueToday.length > 0 || dueSoon.length > 0) && (
         <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", gap: 8 }}>
           {dueToday.length > 0 && (
             <div onClick={() => setPage("rent")} style={{ background: "#fef2f2", border: "1.5px solid #fca5a5", borderRadius: 12, padding: "12px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
@@ -1939,7 +1939,7 @@ function App() {
         </div>
       )}
       <Nav page={page} setPage={setPage} allStats={allStats} rentAlerts={rentAlerts} user={user} userRole={userRole} isAdmin={isAdmin} isManager={isManager} />
-      {page === "home" && <HomePage rooms={rooms} setPage={setPage} setActiveFloor={setActiveFloor} today={today} />}
+      {page === "home" && <HomePage rooms={rooms} setPage={setPage} setActiveFloor={setActiveFloor} today={today} isManager={isManager} />}
       {page === "rooms" && <RoomsPage rooms={rooms} setRooms={setRooms} activeFloor={activeFloor} setActiveFloor={setActiveFloor} onSaveRoom={handleSaveRoom} isManager={isManager} />}
       {page === "search" && <TenantSearchPage rooms={rooms} setPage={setPage} setActiveFloor={setActiveFloor} isManager={isManager} />}
       {isManager && page === "rent" && <RentPage rooms={rooms} setRooms={setRooms} today={today} />}
