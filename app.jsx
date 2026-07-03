@@ -265,8 +265,9 @@ async function loadHistory() {
   return rows || [];
 }
 
-const FLOORS = [1, 2, 3];
-const ROOMS_PER_FLOOR = 40;
+const FLOORS = [0, 1, 2, 3, 4];
+const ROOM_COUNTS = { 0: 3, 1: 40, 2: 40, 3: 40, 4: 4 };
+const FLOOR_LABELS = { 0: "Ground", 1: "Floor 1", 2: "Floor 2", 3: "Floor 3", 4: "Floor 4" };
 
 function makeBeds(count, existing = []) {
   return Array.from({ length: count }, (_, i) => existing[i] || { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "", rentPaidOn: "", rentSnoozedAt: "" });
@@ -275,7 +276,8 @@ function makeBeds(count, existing = []) {
 function initRooms() {
   const rooms = {};
   FLOORS.forEach(floor => {
-    for (let r = 1; r <= ROOMS_PER_FLOOR; r++) {
+    const count = ROOM_COUNTS[floor] || 0;
+    for (let r = 1; r <= count; r++) {
       const id = `${floor}-${r}`;
       rooms[id] = { floor, number: r, beds: 2, label: "", tenants: makeBeds(2) };
     }
@@ -545,7 +547,7 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
     };
   });
 
-  const barColors = ["#3b82f6", "#8b5cf6", "#f59e0b"];
+  const barColors = ["#3b82f6", "#8b5cf6", "#f59e0b", "#10b981", "#ec4899"];
 
   // Rent alerts for home
   const tenants = getAllTenants(rooms);
@@ -647,7 +649,7 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
                 onMouseEnter={e => e.currentTarget.style.borderColor = barColors[idx]}
                 onMouseLeave={e => e.currentTarget.style.borderColor = "#f1f5f9"}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>Floor {fs.f}</span>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{FLOOR_LABELS[fs.f]}</span>
                   <span style={{ fontSize: 12, color: "#64748b" }}>{fs.occ}/{fs.beds} beds ({pct}%)</span>
                 </div>
                 <div style={{ height: 7, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
@@ -668,7 +670,7 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
             onMouseEnter={e => { e.currentTarget.style.borderColor = barColors[idx]; e.currentTarget.style.boxShadow = "0 4px 16px #0002"; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = "#f1f5f9"; e.currentTarget.style.boxShadow = "0 1px 4px #0001"; }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-              <span style={{ fontWeight: 700, fontSize: 15 }}>Floor {fs.f}</span>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>{FLOOR_LABELS[fs.f]}</span>
               <span style={{ fontSize: 10, background: barColors[idx] + "22", color: barColors[idx], fontWeight: 600, padding: "2px 8px", borderRadius: 99 }}>{fs.beds > 0 ? Math.round((fs.occ/fs.beds)*100) : 0}%</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
@@ -1162,15 +1164,15 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
         <p style={{ margin: 0, color: "#64748b", fontSize: 14 }}>Click any room to manage beds, tenants && details</p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 8, marginBottom: 14 }}>
         {FLOORS.map(f => (
           <button key={f} onClick={() => setActiveFloor(f)} style={{
             padding: "12px 8px", borderRadius: 12, border: "none",
             background: activeFloor === f ? "#1a2332" : "#fff",
             color: activeFloor === f ? "#fff" : "#64748b",
-            fontWeight: 700, fontSize: 15, cursor: "pointer",
+            fontWeight: 700, fontSize: 14, cursor: "pointer",
             boxShadow: activeFloor === f ? "0 2px 8px #1a233240" : "0 1px 3px #0001",
-          }}>Floor {f}</button>
+          }}>{FLOOR_LABELS[f]}</button>
         ))}
       </div>
 
@@ -1240,7 +1242,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
             <div style={{ padding: "0 20px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 }}>
               <div>
-                <div style={{ fontWeight: 800, fontSize: 18 }}>Floor {editingRoom.floor} — Room {editingRoom.number}</div>
+                <div style={{ fontWeight: 800, fontSize: 18 }}>{FLOOR_LABELS[editingRoom.floor]} — Room {editingRoom.number}</div>
                 <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 2 }}>Manage beds && tenants</div>
               </div>
               <button onClick={() => setEditingRoom(null)} style={{ background: "#f1f5f9", border: "none", borderRadius: 8, width: 32, height: 32, fontSize: 16, cursor: "pointer", color: "#64748b" }}>✕</button>
@@ -1566,7 +1568,7 @@ function HistoryPage() {
             background: filterFloor === f ? "#1a2332" : "#fff",
             color: filterFloor === f ? "#fff" : "#64748b",
             fontWeight: 500, fontSize: 12, cursor: "pointer",
-          }}>{f === "all" ? "All Floors" : `Floor ${f}`}</button>
+          }}>{f === "all" ? "All Floors" : FLOOR_LABELS[f]}</button>
         ))}
       </div>
 
