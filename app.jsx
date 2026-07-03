@@ -194,6 +194,8 @@ async function loadAllRooms() {
         reasonToStay: t.reason_to_stay || "",
         rentAmount: t.rent_amount || "",
         rentPaidOn: t.rent_paid_on || "",
+        rentPaymentMode: t.rent_payment_mode || "",
+        rentReceiptNo: t.rent_receipt_no || "",
         rentSnoozedAt: t.rent_snoozed_at || "",
         dbId: t.id,
       };
@@ -211,6 +213,15 @@ async function createRoom(floor, number, beds, label = "") {
     { "Prefer": "return=minimal" }
   );
   return id;
+}
+
+async function logPayment(entry) {
+  await sbFetch("/payments", "POST", entry, { "Prefer": "return=minimal" });
+}
+
+async function loadPayments() {
+  const rows = await sbFetch("/payments?select=*&order=paid_at.desc&limit=20000");
+  return rows || [];
 }
 
 async function saveRoom(room, tenants) {
@@ -268,6 +279,8 @@ async function saveRoom(room, tenants) {
       checkout_date: t.checkoutDate || "",
       billing_type: t.billingType || "monthly",
       rent_paid_on: t.rentPaidOn || null,
+      rent_payment_mode: t.rentPaymentMode || null,
+      rent_receipt_no: t.rentReceiptNo || null,
       rent_snoozed_at: t.rentSnoozedAt || null,
     }))
     .filter(t => t.name.trim() !== "");
@@ -322,7 +335,7 @@ const ROOM_COUNTS = { 0: 3, 1: 40, 2: 40, 3: 40, 4: 4 };
 const FLOOR_LABELS = { 0: "Ground", 1: "Floor 1", 2: "Floor 2", 3: "Floor 3", 4: "Floor 4" };
 
 function makeBeds(count, existing = []) {
-  return Array.from({ length: count }, (_, i) => existing[i] || { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "", rentPaidOn: "", rentSnoozedAt: "" });
+  return Array.from({ length: count }, (_, i) => existing[i] || { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "", rentPaidOn: "", rentSnoozedAt: "", rentPaymentMode: "", rentReceiptNo: "" });
 }
 
 function initRooms() {
@@ -352,6 +365,14 @@ function getRoomStatus(room) {
 
 function getOccupied(room) {
   return room.tenants.filter(t => t.name.trim()).length;
+}
+
+// Guaranteed-unique receipt number — built from the exact payment instant,
+// so no database round-trip or counter is needed to avoid collisions.
+function generateReceiptNo(isoString) {
+  const d = new Date(isoString);
+  const pad = (n, len = 2) => String(n).padStart(len, "0");
+  return `RC-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-${pad(d.getMilliseconds(),3)}`;
 }
 
 function fmt(dateStr) {
@@ -850,11 +871,73 @@ function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true }) 
   );
 }
 
+// ── RENT REPORTS PANEL (monthly/yearly revenue, from the permanent payments log) ──
+function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
+  if (loading) {
+    return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8", marginBottom: 14 }}>Loading payment history…</div>;
+  }
+  if (!paymentsLog || paymentsLog.length === 0) {
+    return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8", marginBottom: 14 }}>No payments recorded yet. Once you start marking rent as paid, monthly and yearly totals will show up here — including for tenants who later check out.</div>;
+  }
+
+  const years = Array.from(new Set(paymentsLog.map(p => new Date(p.paid_at).getFullYear()))).sort((a, b) => b - a);
+  if (!years.includes(reportYear)) reportYear = years[0];
+
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const monthly = monthNames.map((name, i) => {
+    const rows = paymentsLog.filter(p => {
+      const d = new Date(p.paid_at);
+      return d.getFullYear() === reportYear && d.getMonth() === i;
+    });
+    return { name, total: rows.reduce((s, p) => s + Number(p.amount || 0), 0), count: rows.length };
+  });
+  const yearTotal = monthly.reduce((s, m) => s + m.total, 0);
+  const maxMonth = Math.max(1, ...monthly.map(m => m.total));
+
+  return (
+    <div style={{ background: "#fff", borderRadius: 14, padding: 16, marginBottom: 14, boxShadow: "0 1px 4px #0001" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>TOTAL COLLECTED IN {reportYear}</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: "#1a2332" }}>₹{yearTotal.toLocaleString("en-IN")}</div>
+        </div>
+        <select value={reportYear} onChange={e => setReportYear(Number(e.target.value))} style={{ padding: "8px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontWeight: 700, fontSize: 14 }}>
+          {years.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {monthly.map(m => (
+          <div key={m.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#64748b" }}>{m.name}</div>
+            <div style={{ flex: 1, background: "#f1f5f9", borderRadius: 6, height: 20, position: "relative", overflow: "hidden" }}>
+              <div style={{ width: `${(m.total / maxMonth) * 100}%`, background: m.total > 0 ? "#3b82f6" : "transparent", height: "100%", borderRadius: 6, transition: "width 0.3s" }} />
+            </div>
+            <div style={{ width: 90, textAlign: "right", fontSize: 12.5, fontWeight: 700, color: "#1a2332" }}>₹{m.total.toLocaleString("en-IN")}</div>
+            <div style={{ width: 30, textAlign: "right", fontSize: 10.5, color: "#94a3b8" }}>{m.count}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── RENT DUE PAGE ─────────────────────────────────────────────
 function RentPage({ rooms, setRooms, today }) {
   const [filter, setFilter] = useState("all");
   const [paidModal, setPaidModal] = useState(null);
   const [busyKey, setBusyKey] = useState(null);
+  const [paymentMode, setPaymentMode] = useState("Cash");
+  const [showReports, setShowReports] = useState(false);
+  const [paymentsLog, setPaymentsLog] = useState(null);
+  const [loadingReports, setLoadingReports] = useState(false);
+  const [reportYear, setReportYear] = useState(today.getFullYear());
+
+  useEffect(() => {
+    if (showReports && paymentsLog === null) {
+      setLoadingReports(true);
+      loadPayments().then(rows => { setPaymentsLog(rows); setLoadingReports(false); });
+    }
+  }, [showReports]);
 
   const tenants = getAllTenants(rooms);
   const monthlyTenants = tenants.filter(t => (t.billingType || "monthly") === "monthly");
@@ -885,9 +968,28 @@ function RentPage({ rooms, setRooms, today }) {
     setBusyKey(null);
   }
 
-  async function markPaid(t) {
+  async function markPaid(t, paymentMode) {
     const nowIso = new Date().toISOString();
-    await patchTenant(t, { rent_paid_on: nowIso, rent_snoozed_at: null }, { rentPaidOn: nowIso, rentSnoozedAt: "" });
+    const receiptNo = generateReceiptNo(nowIso);
+    await patchTenant(
+      t,
+      { rent_paid_on: nowIso, rent_snoozed_at: null, rent_payment_mode: paymentMode, rent_receipt_no: receiptNo },
+      { rentPaidOn: nowIso, rentSnoozedAt: "", rentPaymentMode: paymentMode, rentReceiptNo: receiptNo }
+    );
+    // Permanent ledger entry — survives even after this tenant checks out/is archived,
+    // so month/year revenue reports always stay accurate.
+    try {
+      await logPayment({
+        receipt_no: receiptNo,
+        tenant_name: t.name,
+        phone: t.phone || "",
+        floor: t.floor,
+        room_number: t.roomNumber,
+        amount: Number(t.rentAmount) || 0,
+        payment_mode: paymentMode,
+        paid_at: nowIso,
+      });
+    } catch (e) { console.warn("Payment log failed (table may not exist yet):", e); }
   }
   async function undoPaid(t) {
     await patchTenant(t, { rent_paid_on: null }, { rentPaidOn: "" });
@@ -902,44 +1004,43 @@ function RentPage({ rooms, setRooms, today }) {
 
   function printReceipt(t) {
     const paidDate = t.rentPaidOn ? new Date(t.rentPaidOn) : new Date();
-    const receiptNo = `${t.floor}${t.roomNumber}-${paidDate.getFullYear()}${String(paidDate.getMonth()+1).padStart(2,"0")}${String(paidDate.getDate()).padStart(2,"0")}`;
-    const win = window.open("", "_blank", "width=420,height=640");
-    if (!win) { alert("Please allow pop-ups to print the receipt."); return; }
-    win.document.write(`
-      <html><head><title>Rent Receipt - ${t.name}</title>
-      <style>
-        body { font-family: -apple-system, Arial, sans-serif; padding: 28px; color: #1a2332; }
-        h1 { font-size: 20px; margin: 0 0 2px; }
-        .sub { color: #64748b; font-size: 12px; margin-bottom: 20px; }
-        table { width: 100%; border-collapse: collapse; margin: 16px 0; }
-        td { padding: 8px 0; font-size: 14px; border-bottom: 1px solid #e2e8f0; }
-        td.label { color: #64748b; }
-        td.value { text-align: right; font-weight: 600; }
-        .amount { text-align: center; margin: 24px 0; }
-        .amount .num { font-size: 32px; font-weight: 800; color: #15803d; }
-        .amount .cap { font-size: 11px; color: #94a3b8; letter-spacing: 1px; }
-        .footer { margin-top: 30px; font-size: 11px; color: #94a3b8; text-align: center; }
-        @media print { body { padding: 10px; } }
-      </style></head>
-      <body>
-        <h1>Turiya Hostel</h1>
-        <div class="sub">Rent Receipt · No. ${receiptNo}</div>
-        <table>
-          <tr><td class="label">Tenant</td><td class="value">${t.name}</td></tr>
-          <tr><td class="label">Room</td><td class="value">${FLOOR_LABELS[t.floor] || "Floor " + t.floor} - Room ${t.roomNumber}</td></tr>
-          <tr><td class="label">Phone</td><td class="value">${t.phone || "-"}</td></tr>
-          <tr><td class="label">Payment Date</td><td class="value">${paidDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</td></tr>
-          <tr><td class="label">Payment Cycle</td><td class="value">Due ${t.rentStatus ? "on " + t.rentStatus.dueDay : "-"} · Monthly</td></tr>
-        </table>
-        <div class="amount">
-          <div class="cap">AMOUNT PAID</div>
-          <div class="num">₹${Number(t.rentAmount || 0).toLocaleString("en-IN")}</div>
-        </div>
-        <div class="footer">This is a system-generated receipt. Keep it for your records.</div>
-        <script>window.print();</script>
-      </body></html>
-    `);
-    win.document.close();
+    const receiptNo = t.rentReceiptNo || generateReceiptNo(paidDate.toISOString());
+    const { jsPDF } = window.jspdf || {};
+    if (!jsPDF) { alert("PDF library still loading — try again in a moment."); return; }
+
+    const doc = new jsPDF({ unit: "pt", format: [320, 480] });
+    doc.setFont("helvetica", "bold"); doc.setFontSize(16);
+    doc.text("Turiya Hostel", 24, 40);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(120);
+    doc.text(`Rent Receipt · No. ${receiptNo}`, 24, 56);
+
+    const rows = [
+      ["Tenant", t.name],
+      ["Room", `${FLOOR_LABELS[t.floor] || "Floor " + t.floor} - Room ${t.roomNumber}`],
+      ["Phone", t.phone || "-"],
+      ["Payment Date", paidDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })],
+      ["Payment Mode", t.rentPaymentMode || "-"],
+      ["Payment Cycle", t.rentStatus ? `Due on ${t.rentStatus.dueDay} · Monthly` : "Monthly"],
+    ];
+    let y = 84;
+    doc.setFontSize(11);
+    rows.forEach(([label, value]) => {
+      doc.setTextColor(100); doc.text(label, 24, y);
+      doc.setTextColor(20); doc.text(String(value), 296, y, { align: "right" });
+      doc.setDrawColor(230); doc.line(24, y + 8, 296, y + 8);
+      y += 26;
+    });
+
+    doc.setFontSize(9); doc.setTextColor(150); doc.text("AMOUNT PAID", 160, y + 24, { align: "center" });
+    doc.setFont("helvetica", "bold"); doc.setFontSize(26); doc.setTextColor(21, 128, 61);
+    doc.text(`Rs ${Number(t.rentAmount || 0).toLocaleString("en-IN")}`, 160, y + 52, { align: "center" });
+
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(160);
+    doc.text("This is a system-generated receipt. Keep it for your records.", 160, y + 90, { align: "center" });
+
+    const fileDate = paidDate.toISOString().slice(0, 10);
+    const safeName = (t.name || "tenant").trim().replace(/[^a-zA-Z0-9]+/g, "_");
+    doc.save(`${safeName}_${fileDate}.pdf`);
   }
 
   const categorized = withDates.map(t => {
@@ -993,12 +1094,21 @@ function RentPage({ rooms, setRooms, today }) {
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "16px 12px 90px" }}>
-      <div style={{ marginBottom: 14 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 3px" }}>💰 Rent Due</h1>
-        <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
-          {today.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-        </p>
+      <div style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 3px" }}>💰 Rent Due</h1>
+          <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
+            {today.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+          </p>
+        </div>
+        <button onClick={() => setShowReports(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showReports ? "#1a2332" : "#e2e8f0"), background: showReports ? "#1a2332" : "#fff", color: showReports ? "#fff" : "#475569", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+          📊 Reports
+        </button>
       </div>
+
+      {showReports && (
+        <RentReportsPanel paymentsLog={paymentsLog} loading={loadingReports} reportYear={reportYear} setReportYear={setReportYear} />
+      )}
 
       {/* Summary cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 8, marginBottom: 14 }}>
@@ -1217,14 +1327,28 @@ function RentPage({ rooms, setRooms, today }) {
                 </div>
               )}
             </div>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+                {["Cash", "UPI", "Bank Transfer", "Card"].map(mode => (
+                  <button key={mode} onClick={() => setPaymentMode(mode)} style={{
+                    padding: "9px 4px", borderRadius: 9, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                    border: paymentMode === mode ? "2px solid #22c55e" : "1.5px solid #e2e8f0",
+                    background: paymentMode === mode ? "#f0fdf4" : "#fff",
+                    color: paymentMode === mode ? "#15803d" : "#64748b",
+                  }}>{mode}</button>
+                ))}
+              </div>
+            </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setPaidModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
                 Cancel
               </button>
               <button onClick={async () => {
                 const t = paidModal;
+                const mode = paymentMode;
                 setPaidModal(null);
-                await markPaid(t);
+                await markPaid(t, mode);
               }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#22c55e", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
                 ✅ Yes, Received!
               </button>
