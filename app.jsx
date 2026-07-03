@@ -202,6 +202,17 @@ async function loadAllRooms() {
   return rooms;
 }
 
+async function createRoom(floor, number, beds, label = "") {
+  const id = `${floor}-${number}`;
+  await sbFetch(
+    `/rooms`,
+    "POST",
+    { id, floor, number, beds, label },
+    { "Prefer": "return=minimal" }
+  );
+  return id;
+}
+
 async function saveRoom(room, tenants) {
   const id = `${room.floor}-${room.number}`;
   // Update room beds and label
@@ -889,6 +900,48 @@ function RentPage({ rooms, setRooms, today }) {
     await patchTenant(t, { rent_snoozed_at: null }, { rentSnoozedAt: "" });
   }
 
+  function printReceipt(t) {
+    const paidDate = t.rentPaidOn ? new Date(t.rentPaidOn) : new Date();
+    const receiptNo = `${t.floor}${t.roomNumber}-${paidDate.getFullYear()}${String(paidDate.getMonth()+1).padStart(2,"0")}${String(paidDate.getDate()).padStart(2,"0")}`;
+    const win = window.open("", "_blank", "width=420,height=640");
+    if (!win) { alert("Please allow pop-ups to print the receipt."); return; }
+    win.document.write(`
+      <html><head><title>Rent Receipt - ${t.name}</title>
+      <style>
+        body { font-family: -apple-system, Arial, sans-serif; padding: 28px; color: #1a2332; }
+        h1 { font-size: 20px; margin: 0 0 2px; }
+        .sub { color: #64748b; font-size: 12px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+        td { padding: 8px 0; font-size: 14px; border-bottom: 1px solid #e2e8f0; }
+        td.label { color: #64748b; }
+        td.value { text-align: right; font-weight: 600; }
+        .amount { text-align: center; margin: 24px 0; }
+        .amount .num { font-size: 32px; font-weight: 800; color: #15803d; }
+        .amount .cap { font-size: 11px; color: #94a3b8; letter-spacing: 1px; }
+        .footer { margin-top: 30px; font-size: 11px; color: #94a3b8; text-align: center; }
+        @media print { body { padding: 10px; } }
+      </style></head>
+      <body>
+        <h1>Turiya Hostel</h1>
+        <div class="sub">Rent Receipt · No. ${receiptNo}</div>
+        <table>
+          <tr><td class="label">Tenant</td><td class="value">${t.name}</td></tr>
+          <tr><td class="label">Room</td><td class="value">${FLOOR_LABELS[t.floor] || "Floor " + t.floor} - Room ${t.roomNumber}</td></tr>
+          <tr><td class="label">Phone</td><td class="value">${t.phone || "-"}</td></tr>
+          <tr><td class="label">Payment Date</td><td class="value">${paidDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</td></tr>
+          <tr><td class="label">Payment Cycle</td><td class="value">Due ${t.rentStatus ? "on " + t.rentStatus.dueDay : "-"} · Monthly</td></tr>
+        </table>
+        <div class="amount">
+          <div class="cap">AMOUNT PAID</div>
+          <div class="num">₹${Number(t.rentAmount || 0).toLocaleString("en-IN")}</div>
+        </div>
+        <div class="footer">This is a system-generated receipt. Keep it for your records.</div>
+        <script>window.print();</script>
+      </body></html>
+    `);
+    win.document.close();
+  }
+
   const categorized = withDates.map(t => {
     const rentStatus = getRentStatus(t.admissionDate, today);
     const isPaid = !!rentStatus && isActiveForCycle(t.rentPaidOn, rentStatus.dueDay, today);
@@ -926,6 +979,18 @@ function RentPage({ rooms, setRooms, today }) {
   const totalToCollect = [...dueToday, ...dueSoon].filter(t => t.rentAmount).reduce((s, t) => s + Number(t.rentAmount), 0);
   const totalCollected = paidList.filter(t => t.rentAmount).reduce((s, t) => s + Number(t.rentAmount), 0);
 
+  // Calendar-month total: sums every payment actually made since the 1st of
+  // this month, regardless of individual cycle status. No reset job needed —
+  // it's just filtered live from the stored payment dates, so a new month
+  // naturally starts at ₹0.
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const paidThisCalendarMonth = withDates.filter(t => {
+    if (!t.rentPaidOn) return false;
+    const d = new Date(t.rentPaidOn);
+    return !isNaN(d.getTime()) && d >= monthStart;
+  });
+  const collectedThisMonth = paidThisCalendarMonth.filter(t => t.rentAmount).reduce((s, t) => s + Number(t.rentAmount), 0);
+
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "16px 12px 90px" }}>
       <div style={{ marginBottom: 14 }}>
@@ -961,10 +1026,19 @@ function RentPage({ rooms, setRooms, today }) {
           <div style={{ fontSize: 11, color: "#94a3b8" }}>{[...dueToday,...dueSoon].filter(t=>t.rentAmount).length} tenants</div>
         </div>
         <div style={{ background: "#f0fdf4", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #86efac" }}>
-          <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>COLLECTED</div>
+          <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>COLLECTED (this cycle)</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#15803d" }}>₹{totalCollected.toLocaleString("en-IN")}</div>
           <div style={{ fontSize: 11, color: "#94a3b8" }}>{paidList.filter(t=>t.rentAmount).length} tenants</div>
         </div>
+      </div>
+
+      {/* This calendar month's collections — resets automatically on the 1st, no manual reset needed */}
+      <div style={{ background: "#eff6ff", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #93c5fd", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>COLLECTED IN {today.toLocaleDateString("en-IN", { month: "long" }).toUpperCase()}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#1d4ed8" }}>₹{collectedThisMonth.toLocaleString("en-IN")}</div>
+        </div>
+        <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "right" }}>{paidThisCalendarMonth.length} payment{paidThisCalendarMonth.length !== 1 ? "s" : ""} since 1st<br/>auto-resets next month</div>
       </div>
 
       {/* No date warning */}
@@ -1101,9 +1175,14 @@ function RentPage({ rooms, setRooms, today }) {
                         </>
                       )}
                       {isPaid && (
-                        <button disabled={isBusy} onClick={() => undoPaid(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
-                          Undo Paid
-                        </button>
+                        <>
+                          <button onClick={() => printReceipt(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                            🧾 Receipt
+                          </button>
+                          <button disabled={isBusy} onClick={() => undoPaid(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                            Undo Paid
+                          </button>
+                        </>
                       )}
                       {isSnoozed && (
                         <button disabled={isBusy} onClick={() => unsnoozeTenant(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
@@ -1163,6 +1242,9 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [editForm, setEditForm] = useState(null);
+  const [addingRoom, setAddingRoom] = useState(false);
+  const [newRoomBeds, setNewRoomBeds] = useState(2);
+  const [creatingRoom, setCreatingRoom] = useState(false);
 
   const floorRooms = Object.values(rooms).filter(r => r.floor === activeFloor).sort((a, b) => a.number - b.number);
   const filtered = floorRooms.filter(r => {
@@ -1198,6 +1280,23 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
     setEditingRoom(null);
   }
 
+  async function handleAddRoom() {
+    const beds = Math.max(1, Math.min(20, Number(newRoomBeds) || 2));
+    const nextNumber = floorRooms.length > 0 ? Math.max(...floorRooms.map(r => r.number)) + 1 : 1;
+    setCreatingRoom(true);
+    try {
+      await createRoom(activeFloor, nextNumber, beds, "");
+      const id = `${activeFloor}-${nextNumber}`;
+      setRooms(prev => ({ ...prev, [id]: { floor: activeFloor, number: nextNumber, beds, label: "", tenants: makeBeds(beds) } }));
+      setAddingRoom(false);
+      setNewRoomBeds(2);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to create room. Please check your connection and try again.");
+    }
+    setCreatingRoom(false);
+  }
+
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 12px 90px" }}>
       <div style={{ marginBottom: 14 }}>
@@ -1216,6 +1315,14 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
           }}>{FLOOR_LABELS[f]}</button>
         ))}
       </div>
+
+      {isManager && (
+        <div style={{ marginBottom: 14 }}>
+          <button onClick={() => setAddingRoom(true)} style={{ padding: "10px 16px", borderRadius: 10, border: "1.5px dashed #94a3b8", background: "#fff", color: "#475569", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+            + Add Room to {FLOOR_LABELS[activeFloor]}
+          </button>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 10, marginBottom: 14, overflowX: "auto", paddingBottom: 4, WebkitOverflowScrolling: "touch" }}>
         {[{ label: "Total Beds", value: stats.total, color: "#3b82f6" }, { label: "Occupied", value: stats.occupied, color: "#ef4444" }, { label: "Available", value: stats.total - stats.occupied, color: "#22c55e" }, { label: "Full", value: stats.full, color: "#f97316" }, { label: "Partial", value: stats.partial, color: "#eab308" }, { label: "Empty", value: stats.empty, color: "#64748b" }].map(s => (
@@ -1449,6 +1556,27 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
               <button onClick={() => setEditingRoom(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>Cancel</button>
               <button onClick={saveEdit} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#1a2332", color: "#fff", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>💾 Save Changes</button>
             </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Room modal */}
+      {addingRoom && (
+        <div onClick={() => !creatingRoom && setAddingRoom(false)} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 340 }}>
+            <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>Add Room</div>
+            <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
+              New room will be added to <b>{FLOOR_LABELS[activeFloor]}</b> as Room #{floorRooms.length > 0 ? Math.max(...floorRooms.map(r => r.number)) + 1 : 1}
+            </div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "#475569" }}>Number of beds</label>
+            <input type="number" min={1} max={20} value={newRoomBeds} onChange={e => setNewRoomBeds(e.target.value)}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #e2e8f0", fontSize: 15, marginTop: 6, marginBottom: 18, boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button disabled={creatingRoom} onClick={() => setAddingRoom(false)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 14, cursor: creatingRoom ? "default" : "pointer" }}>Cancel</button>
+              <button disabled={creatingRoom} onClick={handleAddRoom} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#1a2332", color: "#fff", fontWeight: 700, fontSize: 14, cursor: creatingRoom ? "default" : "pointer", opacity: creatingRoom ? 0.7 : 1 }}>
+                {creatingRoom ? "Creating…" : "+ Create Room"}
+              </button>
             </div>
           </div>
         </div>
