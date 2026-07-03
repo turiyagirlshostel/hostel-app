@@ -128,14 +128,26 @@ async function deleteUser(email) {
   await sbFetch(`/user_roles?email=eq.${encodeURIComponent(email)}`, "DELETE", null, { "Prefer": "return=minimal" });
 }
 
-async function sbFetch(path, method = "GET", body = null, extraHeaders = {}) {
+async function sbFetch(path, method = "GET", body = null, extraHeaders = {}, _isRetry = false) {
+  // Use the logged-in user's own token when available, so Supabase RLS can
+  // tell a real authenticated user apart from an anonymous request. Falls
+  // back to the anon key only for the brief pre-login moment.
+  const userToken = (typeof localStorage !== "undefined") ? localStorage.getItem("sb_access_token") : null;
+  const authHeaders = userToken
+    ? { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${userToken}` }
+    : HEADERS;
   const options = {
     method,
-    headers: { ...HEADERS, ...extraHeaders },
+    headers: { ...authHeaders, "Content-Type": "application/json", ...extraHeaders },
   };
   if (body) options.body = JSON.stringify(body);
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, options);
+    if (res.status === 401 && userToken && !_isRetry) {
+      // Token likely expired between refresh cycles — refresh once and retry
+      const newToken = await supabaseAuth.refreshSession();
+      if (newToken) return sbFetch(path, method, body, extraHeaders, true);
+    }
     if (!res.ok) {
       const e = await res.text();
       console.error("Supabase error:", res.status, e);
