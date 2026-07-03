@@ -66,6 +66,35 @@ const supabaseAuth = {
       return res.json();
     } catch(e) { return null; }
   },
+  // Access tokens expire after ~1hr. Use the long-lived refresh token to get a new one silently.
+  async refreshSession() {
+    const refresh = localStorage.getItem("sb_refresh_token");
+    if (!refresh) return null;
+    try {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY },
+        body: JSON.stringify({ refresh_token: refresh }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.access_token) return null;
+      localStorage.setItem("sb_access_token", data.access_token);
+      if (data.refresh_token) localStorage.setItem("sb_refresh_token", data.refresh_token);
+      return data.access_token;
+    } catch (e) { return null; }
+  },
+  // Tries the saved token; if it's expired, silently refreshes and retries once.
+  async getValidUser() {
+    const token = await supabaseAuth.getSession();
+    if (!token) return null;
+    let u = await supabaseAuth.getUser(token);
+    if (u) return u;
+    const newToken = await supabaseAuth.refreshSession();
+    if (!newToken) return null;
+    u = await supabaseAuth.getUser(newToken);
+    return u;
+  },
   signOut() {
     localStorage.removeItem("sb_access_token");
     localStorage.removeItem("sb_refresh_token");
@@ -1847,9 +1876,9 @@ function App() {
   // Auth check on startup
   useEffect(() => {
     (async () => {
-      const token = await supabaseAuth.getSession();
-      if (!token) { setAuthLoading(false); return; }
-      const u = await supabaseAuth.getUser(token);
+      // getSession() also picks up a fresh token from the URL right after Google login
+      await supabaseAuth.getSession();
+      const u = await supabaseAuth.getValidUser();
       if (!u) { setAuthLoading(false); return; }
       setUser(u);
       // Check role
@@ -1863,6 +1892,16 @@ function App() {
       setAuthLoading(false);
     })();
   }, []);
+
+  // Keep the session alive in the background so a long work session never gets
+  // interrupted by the ~1hr access token expiry — refresh well before it lapses.
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => {
+      supabaseAuth.refreshSession();
+    }, 45 * 60 * 1000); // every 45 minutes
+    return () => clearInterval(interval);
+  }, [user]);
 
   // Load rooms only when authenticated and approved
   useEffect(() => {
