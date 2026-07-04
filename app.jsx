@@ -1646,6 +1646,7 @@ function DepositsPage({ rooms, setRooms, today }) {
   const [collectModeOther, setCollectModeOther] = useState("");
 
   const [returnModal, setReturnModal] = useState(null); // ledger row
+  const [undoConfirm, setUndoConfirm] = useState(null); // { type: 'collect'|'return', row }
   const [returnAmount, setReturnAmount] = useState("");
   const [returnMode, setReturnMode] = useState("Cash");
   const [returnModeOther, setReturnModeOther] = useState("");
@@ -1922,7 +1923,7 @@ function DepositsPage({ rooms, setRooms, today }) {
                     <button onClick={() => reprintCollected(row)} style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Receipt</button>
                     <button disabled={isBusy} onClick={() => { setReturnAmount(String(row.amount)); setReturnMode("Cash"); setReturnModeOther(""); setReturnNote(""); setReturnModal(row); }} style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>↩️ Mark Returned</button>
                   </div>
-                  <button disabled={isBusy} onClick={() => undoCollect(row)} style={{ width: "100%", marginTop: 8, padding: "7px 0", borderRadius: 10, border: "1.5px solid #fca5a5", background: "#fff", color: "#ef4444", fontWeight: 600, fontSize: 11.5, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>Undo Collect</button>
+                  <button disabled={isBusy} onClick={() => setUndoConfirm({ type: "collect", row })} style={{ width: "100%", marginTop: 8, padding: "7px 0", borderRadius: 10, border: "1.5px solid #fca5a5", background: "#fff", color: "#ef4444", fontWeight: 600, fontSize: 11.5, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>Undo Collect</button>
                 </div>
               );
             })}
@@ -1947,7 +1948,7 @@ function DepositsPage({ rooms, setRooms, today }) {
                   <div style={{ fontSize: 18, fontWeight: 800, color: "#475569" }}>₹{Number(row.return_amount).toLocaleString("en-IN")}</div>
                 </div>
                 <button onClick={() => reprintReturned(row)} style={{ width: "100%", padding: "8px 0", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Return Receipt</button>
-                <button disabled={busyKey === row.id} onClick={() => undoReturn(row)} style={{ width: "100%", marginTop: 8, padding: "7px 0", borderRadius: 10, border: "1.5px solid #fca5a5", background: "#fff", color: "#ef4444", fontWeight: 600, fontSize: 11.5, cursor: busyKey === row.id ? "default" : "pointer", opacity: busyKey === row.id ? 0.6 : 1 }}>Undo Return</button>
+                <button disabled={busyKey === row.id} onClick={() => setUndoConfirm({ type: "return", row })} style={{ width: "100%", marginTop: 8, padding: "7px 0", borderRadius: 10, border: "1.5px solid #fca5a5", background: "#fff", color: "#ef4444", fontWeight: 600, fontSize: 11.5, cursor: busyKey === row.id ? "default" : "pointer", opacity: busyKey === row.id ? 0.6 : 1 }}>Undo Return</button>
               </div>
             ))}
           </div>
@@ -2018,6 +2019,40 @@ function DepositsPage({ rooms, setRooms, today }) {
                 setReturnModal(null);
                 await confirmReturn(row, amt, mode, returnNote.trim());
               }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#1d4ed8", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>↩️ Confirm Return</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Undo confirmation — Undo Collect deletes the record permanently,
+          Undo Return reverts it back to Held. Both need a deliberate
+          confirm since a tap here can't be casually reversed. */}
+      {undoConfirm && (
+        <div onClick={() => setUndoConfirm(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#e2e8f0" }} /></div>
+            <div style={{ textAlign: "center", marginBottom: 22 }}>
+              <div style={{ fontSize: 44, marginBottom: 10 }}>⚠️</div>
+              <div style={{ fontWeight: 800, fontSize: 19, color: "#1a2332" }}>
+                {undoConfirm.type === "collect" ? "Undo Deposit Collection?" : "Undo Deposit Return?"}
+              </div>
+              <div style={{ fontSize: 14, color: "#64748b", marginTop: 10, lineHeight: 1.5 }}>
+                {undoConfirm.type === "collect"
+                  ? <>This will <b>permanently delete</b> the deposit record for <b>{undoConfirm.row.tenant_name}</b> (₹{Number(undoConfirm.row.amount).toLocaleString("en-IN")}) and move them back to Pending Collection. This can't be undone — you'd need to collect it again from scratch.</>
+                  : <>This will move <b>{undoConfirm.row.tenant_name}</b>'s deposit (₹{Number(undoConfirm.row.return_amount).toLocaleString("en-IN")} returned) back to <b>Held</b>. Use this only if the return was recorded by mistake.</>
+                }
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setUndoConfirm(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
+              <button onClick={async () => {
+                const { type, row } = undoConfirm;
+                setUndoConfirm(null);
+                if (type === "collect") await undoCollect(row);
+                else await undoReturn(row);
+              }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#ef4444", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+                {undoConfirm.type === "collect" ? "Yes, Delete & Undo" : "Yes, Move Back to Held"}
+              </button>
             </div>
           </div>
         </div>
