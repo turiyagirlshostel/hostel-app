@@ -871,8 +871,32 @@ function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true }) 
   );
 }
 
+// Reusable Cash / UPI / Bank Transfer / Other(+ free text) selector
+function PaymentModeSelector({ mode, setMode, otherText, setOtherText }) {
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+        {["Cash", "UPI", "Bank Transfer", "Other"].map(m => (
+          <button key={m} onClick={() => setMode(m)} style={{
+            padding: "9px 4px", borderRadius: 9, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+            border: mode === m ? "2px solid #22c55e" : "1.5px solid #e2e8f0",
+            background: mode === m ? "#f0fdf4" : "#fff",
+            color: mode === m ? "#15803d" : "#64748b",
+          }}>{m}</button>
+        ))}
+      </div>
+      {mode === "Other" && (
+        <input value={otherText} onChange={e => setOtherText(e.target.value)} placeholder="Optional — describe payment mode"
+          style={{ width: "100%", marginTop: 8, padding: "9px 12px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 13, boxSizing: "border-box" }} />
+      )}
+    </div>
+  );
+}
+
 // ── RENT REPORTS PANEL (monthly/yearly revenue, from the permanent payments log) ──
 function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
+  const [expandedMonth, setExpandedMonth] = useState(null);
+
   if (loading) {
     return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8", marginBottom: 14 }}>Loading payment history…</div>;
   }
@@ -885,14 +909,27 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
 
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const monthly = monthNames.map((name, i) => {
-    const rows = paymentsLog.filter(p => {
-      const d = new Date(p.paid_at);
-      return d.getFullYear() === reportYear && d.getMonth() === i;
-    });
-    return { name, total: rows.reduce((s, p) => s + Number(p.amount || 0), 0), count: rows.length };
+    const rows = paymentsLog
+      .filter(p => { const d = new Date(p.paid_at); return d.getFullYear() === reportYear && d.getMonth() === i; })
+      .sort((a, b) => new Date(b.paid_at) - new Date(a.paid_at));
+    return { name, monthIndex: i, rows, total: rows.reduce((s, p) => s + Number(p.amount || 0), 0), count: rows.length };
   });
   const yearTotal = monthly.reduce((s, m) => s + m.total, 0);
   const maxMonth = Math.max(1, ...monthly.map(m => m.total));
+
+  function reprint(p) {
+    generateReceiptPDF({
+      name: p.tenant_name,
+      phone: p.phone,
+      floorLabel: FLOOR_LABELS[p.floor] || "Floor " + p.floor,
+      roomNumber: p.room_number,
+      paidDate: new Date(p.paid_at),
+      amount: p.amount,
+      mode: p.payment_mode,
+      receiptNo: p.receipt_no || generateReceiptNo(p.paid_at),
+      cycleNote: "Monthly",
+    });
+  }
 
   return (
     <div style={{ background: "#fff", borderRadius: 14, padding: 16, marginBottom: 14, boxShadow: "0 1px 4px #0001" }}>
@@ -901,19 +938,41 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
           <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>TOTAL COLLECTED IN {reportYear}</div>
           <div style={{ fontSize: 26, fontWeight: 800, color: "#1a2332" }}>₹{yearTotal.toLocaleString("en-IN")}</div>
         </div>
-        <select value={reportYear} onChange={e => setReportYear(Number(e.target.value))} style={{ padding: "8px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontWeight: 700, fontSize: 14 }}>
+        <select value={reportYear} onChange={e => { setReportYear(Number(e.target.value)); setExpandedMonth(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontWeight: 700, fontSize: 14 }}>
           {years.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {monthly.map(m => (
-          <div key={m.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#64748b" }}>{m.name}</div>
-            <div style={{ flex: 1, background: "#f1f5f9", borderRadius: 6, height: 20, position: "relative", overflow: "hidden" }}>
-              <div style={{ width: `${(m.total / maxMonth) * 100}%`, background: m.total > 0 ? "#3b82f6" : "transparent", height: "100%", borderRadius: 6, transition: "width 0.3s" }} />
+          <div key={m.name}>
+            <div onClick={() => m.count > 0 && setExpandedMonth(x => x === m.monthIndex ? null : m.monthIndex)}
+              style={{ display: "flex", alignItems: "center", gap: 10, cursor: m.count > 0 ? "pointer" : "default", padding: "4px 6px", borderRadius: 8, background: expandedMonth === m.monthIndex ? "#f8fafc" : "transparent" }}>
+              <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#64748b" }}>{m.name}</div>
+              <div style={{ flex: 1, background: "#f1f5f9", borderRadius: 6, height: 20, position: "relative", overflow: "hidden" }}>
+                <div style={{ width: `${(m.total / maxMonth) * 100}%`, background: m.total > 0 ? "#3b82f6" : "transparent", height: "100%", borderRadius: 6, transition: "width 0.3s" }} />
+              </div>
+              <div style={{ width: 90, textAlign: "right", fontSize: 12.5, fontWeight: 700, color: "#1a2332" }}>₹{m.total.toLocaleString("en-IN")}</div>
+              <div style={{ width: 22, textAlign: "right", fontSize: 10.5, color: "#94a3b8" }}>{m.count}</div>
+              <div style={{ width: 14, textAlign: "center", fontSize: 10, color: "#94a3b8" }}>{m.count > 0 ? (expandedMonth === m.monthIndex ? "▲" : "▼") : ""}</div>
             </div>
-            <div style={{ width: 90, textAlign: "right", fontSize: 12.5, fontWeight: 700, color: "#1a2332" }}>₹{m.total.toLocaleString("en-IN")}</div>
-            <div style={{ width: 30, textAlign: "right", fontSize: 10.5, color: "#94a3b8" }}>{m.count}</div>
+            {expandedMonth === m.monthIndex && (
+              <div style={{ margin: "6px 4px 10px", background: "#f8fafc", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                {m.rows.map(p => (
+                  <div key={p.id || p.receipt_no} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 8, padding: "8px 10px", boxShadow: "0 1px 2px #0001" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2332" }}>{p.tenant_name}</div>
+                      <div style={{ fontSize: 11, color: "#94a3b8" }}>
+                        {FLOOR_LABELS[p.floor] || "Floor " + p.floor} · Room {p.room_number} · {new Date(p.paid_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · {p.payment_mode || "mode not set"}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: "#15803d" }}>₹{Number(p.amount || 0).toLocaleString("en-IN")}</div>
+                      <button onClick={() => reprint(p)} style={{ padding: "5px 10px", borderRadius: 7, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>🧾 Reprint</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -922,12 +981,57 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
 }
 
 // ── RENT DUE PAGE ─────────────────────────────────────────────
+// Shared receipt PDF generator — used both for a freshly-marked-paid tenant
+// and for reprinting any past payment from the permanent ledger in Reports.
+function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amount, mode, receiptNo, cycleNote }) {
+  const { jsPDF } = window.jspdf || {};
+  if (!jsPDF) { alert("PDF library still loading — try again in a moment."); return; }
+
+  const doc = new jsPDF({ unit: "pt", format: [320, 480] });
+  doc.setFont("helvetica", "bold"); doc.setFontSize(16);
+  doc.text("Turiya Hostel", 24, 40);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(120);
+  doc.text(`Rent Receipt · No. ${receiptNo}`, 24, 56);
+
+  const rows = [
+    ["Tenant", name],
+    ["Room", `${floorLabel} - Room ${roomNumber}`],
+    ["Phone", phone || "-"],
+    ["Payment Date", paidDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })],
+    ["Payment Mode", mode || "-"],
+    ["Payment Cycle", cycleNote || "Monthly"],
+  ];
+  let y = 84;
+  doc.setFontSize(11);
+  rows.forEach(([label, value]) => {
+    doc.setTextColor(100); doc.text(label, 24, y);
+    doc.setTextColor(20); doc.text(String(value), 296, y, { align: "right" });
+    doc.setDrawColor(230); doc.line(24, y + 8, 296, y + 8);
+    y += 26;
+  });
+
+  doc.setFontSize(9); doc.setTextColor(150); doc.text("AMOUNT PAID", 160, y + 24, { align: "center" });
+  doc.setFont("helvetica", "bold"); doc.setFontSize(26); doc.setTextColor(21, 128, 61);
+  doc.text(`Rs ${Number(amount || 0).toLocaleString("en-IN")}`, 160, y + 52, { align: "center" });
+
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(160);
+  doc.text("This is a system-generated receipt. Keep it for your records.", 160, y + 90, { align: "center" });
+
+  const fileDate = paidDate.toISOString().slice(0, 10);
+  const safeName = (name || "tenant").trim().replace(/[^a-zA-Z0-9]+/g, "_");
+  doc.save(`${safeName}_${fileDate}.pdf`);
+}
+
 function RentPage({ rooms, setRooms, today }) {
   const [filter, setFilter] = useState("all");
   const [paidModal, setPaidModal] = useState(null);
   const [busyKey, setBusyKey] = useState(null);
   const [paymentMode, setPaymentMode] = useState("Cash");
+  const [paymentModeOther, setPaymentModeOther] = useState("");
   const [showReports, setShowReports] = useState(false);
+  const [receiptModal, setReceiptModal] = useState(null);
+  const [receiptMode, setReceiptMode] = useState("Cash");
+  const [receiptModeOther, setReceiptModeOther] = useState("");
   const [paymentsLog, setPaymentsLog] = useState(null);
   const [loadingReports, setLoadingReports] = useState(false);
   const [reportYear, setReportYear] = useState(today.getFullYear());
@@ -971,10 +1075,11 @@ function RentPage({ rooms, setRooms, today }) {
   async function markPaid(t, paymentMode) {
     const nowIso = new Date().toISOString();
     const receiptNo = generateReceiptNo(nowIso);
+    const finalMode = paymentMode;
     await patchTenant(
       t,
-      { rent_paid_on: nowIso, rent_snoozed_at: null, rent_payment_mode: paymentMode, rent_receipt_no: receiptNo },
-      { rentPaidOn: nowIso, rentSnoozedAt: "", rentPaymentMode: paymentMode, rentReceiptNo: receiptNo }
+      { rent_paid_on: nowIso, rent_snoozed_at: null, rent_payment_mode: finalMode, rent_receipt_no: receiptNo },
+      { rentPaidOn: nowIso, rentSnoozedAt: "", rentPaymentMode: finalMode, rentReceiptNo: receiptNo }
     );
     // Permanent ledger entry — survives even after this tenant checks out/is archived,
     // so month/year revenue reports always stay accurate.
@@ -986,7 +1091,7 @@ function RentPage({ rooms, setRooms, today }) {
         floor: t.floor,
         room_number: t.roomNumber,
         amount: Number(t.rentAmount) || 0,
-        payment_mode: paymentMode,
+        payment_mode: finalMode,
         paid_at: nowIso,
       });
     } catch (e) { console.warn("Payment log failed (table may not exist yet):", e); }
@@ -1005,42 +1110,40 @@ function RentPage({ rooms, setRooms, today }) {
   function printReceipt(t) {
     const paidDate = t.rentPaidOn ? new Date(t.rentPaidOn) : new Date();
     const receiptNo = t.rentReceiptNo || generateReceiptNo(paidDate.toISOString());
-    const { jsPDF } = window.jspdf || {};
-    if (!jsPDF) { alert("PDF library still loading — try again in a moment."); return; }
-
-    const doc = new jsPDF({ unit: "pt", format: [320, 480] });
-    doc.setFont("helvetica", "bold"); doc.setFontSize(16);
-    doc.text("Turiya Hostel", 24, 40);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(120);
-    doc.text(`Rent Receipt · No. ${receiptNo}`, 24, 56);
-
-    const rows = [
-      ["Tenant", t.name],
-      ["Room", `${FLOOR_LABELS[t.floor] || "Floor " + t.floor} - Room ${t.roomNumber}`],
-      ["Phone", t.phone || "-"],
-      ["Payment Date", paidDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })],
-      ["Payment Mode", t.rentPaymentMode || "-"],
-      ["Payment Cycle", t.rentStatus ? `Due on ${t.rentStatus.dueDay} · Monthly` : "Monthly"],
-    ];
-    let y = 84;
-    doc.setFontSize(11);
-    rows.forEach(([label, value]) => {
-      doc.setTextColor(100); doc.text(label, 24, y);
-      doc.setTextColor(20); doc.text(String(value), 296, y, { align: "right" });
-      doc.setDrawColor(230); doc.line(24, y + 8, 296, y + 8);
-      y += 26;
+    generateReceiptPDF({
+      name: t.name,
+      phone: t.phone,
+      floorLabel: FLOOR_LABELS[t.floor] || "Floor " + t.floor,
+      roomNumber: t.roomNumber,
+      paidDate,
+      amount: t.rentAmount,
+      mode: t.rentPaymentMode,
+      receiptNo,
+      cycleNote: t.rentStatus ? `Due on ${t.rentStatus.dueDay} · Monthly` : "Monthly",
     });
+  }
 
-    doc.setFontSize(9); doc.setTextColor(150); doc.text("AMOUNT PAID", 160, y + 24, { align: "center" });
-    doc.setFont("helvetica", "bold"); doc.setFontSize(26); doc.setTextColor(21, 128, 61);
-    doc.text(`Rs ${Number(t.rentAmount || 0).toLocaleString("en-IN")}`, 160, y + 52, { align: "center" });
-
-    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(160);
-    doc.text("This is a system-generated receipt. Keep it for your records.", 160, y + 90, { align: "center" });
-
-    const fileDate = paidDate.toISOString().slice(0, 10);
-    const safeName = (t.name || "tenant").trim().replace(/[^a-zA-Z0-9]+/g, "_");
-    doc.save(`${safeName}_${fileDate}.pdf`);
+  async function confirmReceiptAndPrint(t, mode) {
+    const finalMode = mode === "Other" ? receiptModeOther.trim() : mode;
+    setReceiptModal(null);
+    if (finalMode !== t.rentPaymentMode) {
+      // Keep the tenant row and the permanent ledger entry in sync
+      try {
+        await sbFetch(`/tenants?id=eq.${t.dbId}`, "PATCH", { rent_payment_mode: finalMode }, { "Prefer": "return=minimal" });
+        if (t.rentReceiptNo) {
+          await sbFetch(`/payments?receipt_no=eq.${t.rentReceiptNo}`, "PATCH", { payment_mode: finalMode }, { "Prefer": "return=minimal" });
+        }
+        setRooms(prev => {
+          const roomId = `${t.floor}-${t.roomNumber}`;
+          const room = prev[roomId];
+          if (!room) return prev;
+          const bedIndex = t.bed - 1;
+          const newTenants = room.tenants.map((tn, bi) => bi === bedIndex ? { ...tn, rentPaymentMode: finalMode } : tn);
+          return { ...prev, [roomId]: { ...room, tenants: newTenants } };
+        });
+      } catch (e) { console.warn("Could not update payment mode:", e); }
+    }
+    printReceipt({ ...t, rentPaymentMode: finalMode });
   }
 
   const categorized = withDates.map(t => {
@@ -1276,7 +1379,7 @@ function RentPage({ rooms, setRooms, today }) {
                       <div style={{ flex: 1 }} />
                       {!isPaid && !isSnoozed && (
                         <>
-                          <button disabled={isBusy} onClick={() => setPaidModal(t)} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "#22c55e", color: "#fff", fontWeight: 800, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5 }}>
+                          <button disabled={isBusy} onClick={() => { setPaymentMode("Cash"); setPaymentModeOther(""); setPaidModal(t); }} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "#22c55e", color: "#fff", fontWeight: 800, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5 }}>
                             ✅ Mark Paid
                           </button>
                           <button disabled={isBusy} onClick={() => snoozeTenant(t)} style={{ padding: "8px 14px", borderRadius: 10, border: "1.5px solid #c4b5fd", background: "#f5f3ff", color: "#7c3aed", fontWeight: 700, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
@@ -1286,7 +1389,7 @@ function RentPage({ rooms, setRooms, today }) {
                       )}
                       {isPaid && (
                         <>
-                          <button onClick={() => printReceipt(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                          <button onClick={() => { setReceiptMode(t.rentPaymentMode || "Cash"); setReceiptModeOther(""); setReceiptModal(t); }} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                             🧾 Receipt
                           </button>
                           <button disabled={isBusy} onClick={() => undoPaid(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
@@ -1329,16 +1432,7 @@ function RentPage({ rooms, setRooms, today }) {
             </div>
             <div style={{ marginBottom: 18 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
-                {["Cash", "UPI", "Bank Transfer", "Card"].map(mode => (
-                  <button key={mode} onClick={() => setPaymentMode(mode)} style={{
-                    padding: "9px 4px", borderRadius: 9, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
-                    border: paymentMode === mode ? "2px solid #22c55e" : "1.5px solid #e2e8f0",
-                    background: paymentMode === mode ? "#f0fdf4" : "#fff",
-                    color: paymentMode === mode ? "#15803d" : "#64748b",
-                  }}>{mode}</button>
-                ))}
-              </div>
+              <PaymentModeSelector mode={paymentMode} setMode={setPaymentMode} otherText={paymentModeOther} setOtherText={setPaymentModeOther} />
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setPaidModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
@@ -1346,11 +1440,47 @@ function RentPage({ rooms, setRooms, today }) {
               </button>
               <button onClick={async () => {
                 const t = paidModal;
-                const mode = paymentMode;
+                const mode = paymentMode === "Other" ? paymentModeOther.trim() : paymentMode;
                 setPaidModal(null);
                 await markPaid(t, mode);
               }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#22c55e", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
                 ✅ Yes, Received!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt confirmation modal — same style as the paid confirmation,
+          lets you review/adjust payment mode right before generating the PDF */}
+      {receiptModal && (
+        <div onClick={() => setReceiptModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
+              <div style={{ width: 40, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+            </div>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ fontSize: 52, marginBottom: 10 }}>🧾</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1a2332" }}>Generate Receipt</div>
+              <div style={{ fontSize: 14, color: "#64748b", marginTop: 8 }}>For</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1a2332", marginTop: 4 }}>{receiptModal.name}</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Floor {receiptModal.floor} · Room {receiptModal.roomNumber} · Bed {receiptModal.bed}</div>
+              {receiptModal.rentAmount && (
+                <div style={{ marginTop: 14, display: "inline-block", background: "#eff6ff", color: "#1d4ed8", fontWeight: 800, fontSize: 28, padding: "10px 28px", borderRadius: 14, border: "2.5px solid #93c5fd" }}>
+                  ₹{Number(receiptModal.rentAmount).toLocaleString("en-IN")}
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
+              <PaymentModeSelector mode={receiptMode} setMode={setReceiptMode} otherText={receiptModeOther} setOtherText={setReceiptModeOther} />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setReceiptModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={() => confirmReceiptAndPrint(receiptModal, receiptMode)} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#1d4ed8", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+                🧾 Print / Save PDF
               </button>
             </div>
           </div>
