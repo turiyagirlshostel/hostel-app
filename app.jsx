@@ -944,6 +944,73 @@ function PaymentModeSelector({ mode, setMode, otherText, setOtherText }) {
   );
 }
 
+// ── TENANT RENT HISTORY SEARCH (search any tenant, see every payment ever
+// made by them from the permanent ledger — independent of their current
+// cycle status, and still works after they've checked out) ──
+function TenantHistoryPanel({ paymentsLog, loading, search, setSearch }) {
+  function reprint(p) {
+    generateReceiptPDF({
+      name: p.tenant_name,
+      phone: p.phone,
+      floorLabel: FLOOR_LABELS[p.floor] || "Floor " + p.floor,
+      roomNumber: p.room_number,
+      paidDate: new Date(p.paid_at),
+      amount: p.amount,
+      mode: p.payment_mode,
+      receiptNo: p.receipt_no || generateReceiptNo(p.paid_at),
+      cycleNote: "Monthly",
+    });
+  }
+
+  const term = search.trim().toLowerCase();
+  const matches = term.length === 0 ? [] : (paymentsLog || []).filter(p => (p.tenant_name || "").toLowerCase().includes(term));
+  const sorted = [...matches].sort((a, b) => new Date(b.paid_at) - new Date(a.paid_at));
+  const total = sorted.reduce((s, p) => s + Number(p.amount || 0), 0);
+
+  return (
+    <div style={{ background: "#fff", borderRadius: 14, padding: 16, marginBottom: 14, boxShadow: "0 1px 4px #0001" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 8 }}>SEARCH A TENANT'S PAYMENT HISTORY</div>
+      <input
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Type tenant name…"
+        style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", fontSize: 14, boxSizing: "border-box", marginBottom: 14 }}
+      />
+      {loading && <div style={{ textAlign: "center", color: "#94a3b8", padding: 20 }}>Loading payment history…</div>}
+      {!loading && term.length === 0 && (
+        <div style={{ textAlign: "center", color: "#94a3b8", padding: 10, fontSize: 13 }}>Start typing a name to see every rent payment they've ever made.</div>
+      )}
+      {!loading && term.length > 0 && sorted.length === 0 && (
+        <div style={{ textAlign: "center", color: "#94a3b8", padding: 10, fontSize: 13 }}>No payments found matching "{search}".</div>
+      )}
+      {!loading && sorted.length > 0 && (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, padding: "8px 10px", background: "#f8fafc", borderRadius: 8 }}>
+            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 700 }}>{sorted.length} payment{sorted.length !== 1 ? "s" : ""} found</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#15803d" }}>₹{total.toLocaleString("en-IN")} total</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {sorted.map(p => (
+              <div key={p.id || p.receipt_no} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#f8fafc", borderRadius: 8, padding: "8px 10px" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2332" }}>{p.tenant_name}</div>
+                  <div style={{ fontSize: 11, color: "#94a3b8" }}>
+                    {FLOOR_LABELS[p.floor] || "Floor " + p.floor} · Room {p.room_number} · {new Date(p.paid_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} · {p.payment_mode || "mode not set"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#15803d" }}>₹{Number(p.amount || 0).toLocaleString("en-IN")}</div>
+                  <button onClick={() => reprint(p)} style={{ padding: "5px 10px", borderRadius: 7, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>🧾 Reprint</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── RENT REPORTS PANEL (monthly/yearly revenue, from the permanent payments log) ──
 function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
   const [expandedMonth, setExpandedMonth] = useState(null);
@@ -1086,13 +1153,15 @@ function RentPage({ rooms, setRooms, today }) {
   const [paymentsLog, setPaymentsLog] = useState(null);
   const [loadingReports, setLoadingReports] = useState(false);
   const [reportYear, setReportYear] = useState(today.getFullYear());
+  const [showHistorySearch, setShowHistorySearch] = useState(false);
+  const [historySearch, setHistorySearch] = useState("");
 
   useEffect(() => {
-    if (showReports && paymentsLog === null) {
+    if ((showReports || showHistorySearch) && paymentsLog === null) {
       setLoadingReports(true);
       loadPayments().then(rows => { setPaymentsLog(rows); setLoadingReports(false); });
     }
-  }, [showReports]);
+  }, [showReports, showHistorySearch]);
 
   const tenants = getAllTenants(rooms);
   const monthlyTenants = tenants.filter(t => (t.billingType || "monthly") === "monthly");
@@ -1268,10 +1337,19 @@ function RentPage({ rooms, setRooms, today }) {
             {today.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </p>
         </div>
-        <button onClick={() => setShowReports(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showReports ? "#1a2332" : "#e2e8f0"), background: showReports ? "#1a2332" : "#fff", color: showReports ? "#fff" : "#475569", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
-          📊 Reports
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setShowHistorySearch(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showHistorySearch ? "#1a2332" : "#e2e8f0"), background: showHistorySearch ? "#1a2332" : "#fff", color: showHistorySearch ? "#fff" : "#475569", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+            🔍 History
+          </button>
+          <button onClick={() => setShowReports(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showReports ? "#1a2332" : "#e2e8f0"), background: showReports ? "#1a2332" : "#fff", color: showReports ? "#fff" : "#475569", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+            📊 Reports
+          </button>
+        </div>
       </div>
+
+      {showHistorySearch && (
+        <TenantHistoryPanel paymentsLog={paymentsLog} loading={loadingReports} search={historySearch} setSearch={setHistorySearch} />
+      )}
 
       {showReports && (
         <RentReportsPanel paymentsLog={paymentsLog} loading={loadingReports} reportYear={reportYear} setReportYear={setReportYear} />
@@ -1684,6 +1762,68 @@ function DepositsPage({ rooms, setRooms, today }) {
     });
   }
 
+  // Clears the given deposit fields on whichever active tenant matches this
+  // receipt number (best-effort — no-op if the tenant has since been
+  // cleared/archived, since the ledger row is the real source of truth).
+  function clearTenantDepositFields(receiptNo, dbFields, localFields) {
+    setRooms(prev => {
+      let changed = false;
+      const next = { ...prev };
+      Object.keys(next).forEach(roomId => {
+        const room = next[roomId];
+        const idx = room.tenants.findIndex(tn => tn.depositReceiptNo === receiptNo);
+        if (idx !== -1) {
+          const matchedTenant = room.tenants[idx];
+          const newTenants = room.tenants.map((tn, i) => i === idx ? { ...tn, ...localFields } : tn);
+          next[roomId] = { ...room, tenants: newTenants };
+          changed = true;
+          if (matchedTenant.dbId) {
+            sbFetch(`/tenants?id=eq.${matchedTenant.dbId}`, "PATCH", dbFields, { "Prefer": "return=minimal" }).catch(() => {});
+          }
+        }
+      });
+      return changed ? next : prev;
+    });
+  }
+
+  // Undo a mistaken "Mark Collected" — removes the ledger row entirely and
+  // resets the tenant back to "Pending Collection".
+  async function undoCollect(row) {
+    setBusyKey(row.id);
+    try {
+      await sbFetch(`/security_deposits?id=eq.${row.id}`, "DELETE", null, { "Prefer": "return=minimal" });
+      clearTenantDepositFields(
+        row.receipt_no,
+        { deposit_paid_on: null, deposit_payment_mode: null, deposit_receipt_no: null },
+        { depositPaidOn: "", depositPaymentMode: "", depositReceiptNo: "" }
+      );
+      setDepositsLog(prev => prev ? prev.filter(d => d.id !== row.id) : prev);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to undo. Please check your internet connection.");
+    }
+    setBusyKey(null);
+  }
+
+  // Undo a mistaken "Mark Returned" — reverts the ledger row back to Held,
+  // keeping the original collection intact.
+  async function undoReturn(row) {
+    setBusyKey(row.id);
+    try {
+      await updateDepositRecord(row.id, { returned_at: null, return_amount: null, return_mode: null, return_receipt_no: null, return_note: null });
+      clearTenantDepositFields(
+        row.receipt_no,
+        { deposit_returned_on: null, deposit_return_amount: null },
+        { depositReturnedOn: "", depositReturnAmount: "" }
+      );
+      refreshLog();
+    } catch (e) {
+      console.error(e);
+      alert("Failed to undo. Please check your internet connection.");
+    }
+    setBusyKey(null);
+  }
+
   const tenants = getAllTenants(rooms);
   const pending = tenants.filter(t => Number(t.depositAmount) > 0 && !t.depositPaidOn);
   const held = (depositsLog || []).filter(d => !d.returned_at);
@@ -1782,6 +1922,7 @@ function DepositsPage({ rooms, setRooms, today }) {
                     <button onClick={() => reprintCollected(row)} style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Receipt</button>
                     <button disabled={isBusy} onClick={() => { setReturnAmount(String(row.amount)); setReturnMode("Cash"); setReturnModeOther(""); setReturnNote(""); setReturnModal(row); }} style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>↩️ Mark Returned</button>
                   </div>
+                  <button disabled={isBusy} onClick={() => undoCollect(row)} style={{ width: "100%", marginTop: 8, padding: "7px 0", borderRadius: 10, border: "1.5px solid #fca5a5", background: "#fff", color: "#ef4444", fontWeight: 600, fontSize: 11.5, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>Undo Collect</button>
                 </div>
               );
             })}
@@ -1806,6 +1947,7 @@ function DepositsPage({ rooms, setRooms, today }) {
                   <div style={{ fontSize: 18, fontWeight: 800, color: "#475569" }}>₹{Number(row.return_amount).toLocaleString("en-IN")}</div>
                 </div>
                 <button onClick={() => reprintReturned(row)} style={{ width: "100%", padding: "8px 0", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Return Receipt</button>
+                <button disabled={busyKey === row.id} onClick={() => undoReturn(row)} style={{ width: "100%", marginTop: 8, padding: "7px 0", borderRadius: 10, border: "1.5px solid #fca5a5", background: "#fff", color: "#ef4444", fontWeight: 600, fontSize: 11.5, cursor: busyKey === row.id ? "default" : "pointer", opacity: busyKey === row.id ? 0.6 : 1 }}>Undo Return</button>
               </div>
             ))}
           </div>
