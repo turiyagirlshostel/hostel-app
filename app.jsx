@@ -838,15 +838,23 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
 // ── TENANT SEARCH PAGE ────────────────────────────────────────
 function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true }) {
   const [query, setQuery] = useState("");
+  const [companyFilter, setCompanyFilter] = useState("all");
   const allTenants = getAllTenants(rooms);
 
-  const results = query.trim().length === 0 ? allTenants : allTenants.filter(t =>
-    t.name.toLowerCase().includes(query.toLowerCase()) ||
-    (t.phone || "").includes(query) ||
-    String(t.roomNumber).includes(query) ||
-    String(t.floor).includes(query) ||
-    (t.roomLabel || "").toLowerCase().includes(query.toLowerCase())
-  );
+  const companies = Array.from(new Set(allTenants.map(t => (t.occupationPlace || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+
+  const results = allTenants.filter(t => {
+    const matchesQuery = query.trim().length === 0 || (
+      t.name.toLowerCase().includes(query.toLowerCase()) ||
+      (t.phone || "").includes(query) ||
+      String(t.roomNumber).includes(query) ||
+      String(t.floor).includes(query) ||
+      (t.roomLabel || "").toLowerCase().includes(query.toLowerCase()) ||
+      (t.occupationPlace || "").toLowerCase().includes(query.toLowerCase())
+    );
+    const matchesCompany = companyFilter === "all" || t.occupationPlace === companyFilter;
+    return matchesQuery && matchesCompany;
+  });
 
   return (
     <div style={{ maxWidth: 800, margin: "0 auto", padding: "16px 12px 90px" }}>
@@ -859,7 +867,7 @@ function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true }) 
         <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", fontSize: 16 }}>🔍</span>
         <input
           autoFocus
-          placeholder="Search by name, phone, room number, floor…"
+          placeholder="Search by name, phone, room number, floor, company…"
           value={query}
           onChange={e => setQuery(e.target.value)}
           style={{ ...inputStyle, paddingLeft: 40, fontSize: 15, padding: "12px 14px 12px 40px", borderRadius: 12, border: "2px solid #e2e8f0" }}
@@ -869,8 +877,18 @@ function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true }) 
         )}
       </div>
 
+      {isManager && companies.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 6 }}>FILTER BY COMPANY / PLACE</label>
+          <select value={companyFilter} onChange={e => setCompanyFilter(e.target.value)} style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #e2e8f0", fontSize: 14, background: "#fff" }}>
+            <option value="all">All companies/places</option>
+            {companies.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+      )}
+
       <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 12 }}>
-        {query ? `${results.length} result${results.length !== 1 ? "s" : ""} for "${query}"` : `Showing all ${results.length} tenants`}
+        {(query || companyFilter !== "all") ? `${results.length} result${results.length !== 1 ? "s" : ""}${query ? ` for "${query}"` : ""}${companyFilter !== "all" ? ` at ${companyFilter}` : ""}` : `Showing all ${results.length} tenants`}
       </div>
 
       {results.length === 0 ? (
