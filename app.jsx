@@ -476,18 +476,28 @@ function getAllTenants(rooms) {
 function getRentStatus(admissionDate, today) {
   if (!admissionDate) return null;
   const ad = new Date(admissionDate + "T00:00:00");
-  const dueDay = ad.getDate();
+  const dueDay = ad.getDate(); // the tenant's actual billing anchor day, e.g. 31
   const todayDay = today.getDate();
-  const diff = dueDay - todayDay;
+  const daysInThisMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  // If the anchor day doesn't exist in this month (e.g. 31st in April, or
+  // 29th/30th/31st in February), the cycle falls on the month's last day
+  // instead — same clamping getCycleStart() already does for payments.
+  const dueDayThisMonth = Math.min(dueDay, daysInThisMonth);
+  const diff = dueDayThisMonth - todayDay;
   if (diff === 0) return { type: "due_today", label: "Due Today", color: "#ef4444", bg: "#fef2f2", icon: "🔴", daysUntil: 0, dueDay };
   if (diff > 0 && diff <= 3) return { type: "due_soon", label: `Due in ${diff} day${diff>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil: diff, dueDay };
   if (diff < 0) {
-    // next month
-    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-    const daysLeft = daysInMonth - todayDay + dueDay;
+    // This month's due day has passed — check how close next month's
+    // (also clamped) due day is.
+    let nextMonth = today.getMonth() + 1, nextYear = today.getFullYear();
+    if (nextMonth > 11) { nextMonth = 0; nextYear += 1; }
+    const daysInNextMonth = new Date(nextYear, nextMonth + 1, 0).getDate();
+    const dueDayNextMonth = Math.min(dueDay, daysInNextMonth);
+    const daysLeft = daysInThisMonth - todayDay + dueDayNextMonth;
     if (daysLeft <= 3) return { type: "due_soon", label: `Due in ${daysLeft} day${daysLeft>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil: daysLeft, dueDay };
+    return { type: "ok", label: `Due on ${ordinal(dueDay)}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil: daysLeft, dueDay };
   }
-  return { type: "ok", label: `Due on ${ordinal(dueDay)}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil: diff < 0 ? (new Date(today.getFullYear(), today.getMonth()+1,0).getDate()-todayDay+dueDay) : diff, dueDay };
+  return { type: "ok", label: `Due on ${ordinal(dueDay)}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil: diff, dueDay };
 }
 
 // Start of the current billing cycle (the most recent occurrence of dueDay on/before today)
@@ -508,6 +518,36 @@ function getCycleStart(dueDay, today) {
 function isActiveForCycle(isoDateStr, dueDay, today) {
   if (!isoDateStr) return false;
   const cycleStart = getCycleStart(dueDay, today);
+  const d = new Date(isoDateStr);
+  if (isNaN(d.getTime())) return false;
+  return d >= cycleStart;
+}
+
+// ── 15-DAY CYCLE — repeats every 15 days from the tenant's admission date,
+// not tied to calendar months at all (unlike Monthly, which recurs on the
+// same day-of-month). ──
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function getCycleStart15(admissionDate, today) {
+  const ad = new Date(admissionDate + "T00:00:00");
+  const diffDays = Math.floor((today - ad) / MS_PER_DAY);
+  const cyclesPassed = Math.max(0, Math.floor(diffDays / 15));
+  return new Date(ad.getTime() + cyclesPassed * 15 * MS_PER_DAY);
+}
+
+function getRentStatus15(admissionDate, today) {
+  if (!admissionDate) return null;
+  const cycleStart = getCycleStart15(admissionDate, today);
+  const nextDue = new Date(cycleStart.getTime() + 15 * MS_PER_DAY);
+  const daysUntil = Math.round((nextDue - today) / MS_PER_DAY);
+  const dueLabel = fmtDateIST(nextDue, { day: "numeric", month: "short" });
+  if (daysUntil <= 0) return { type: "due_today", label: "Due Today", color: "#ef4444", bg: "#fef2f2", icon: "🔴", daysUntil: 0, cycleStart, nextDue };
+  if (daysUntil <= 3) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil, cycleStart, nextDue };
+  return { type: "ok", label: `Due on ${dueLabel}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil, cycleStart, nextDue };
+}
+
+function isActiveForCycle15(isoDateStr, cycleStart) {
+  if (!isoDateStr) return false;
   const d = new Date(isoDateStr);
   if (isNaN(d.getTime())) return false;
   return d >= cycleStart;
@@ -1214,9 +1254,11 @@ function RentPage({ rooms, setRooms, today }) {
 
   const tenants = getAllTenants(rooms);
   const monthlyTenants = tenants.filter(t => (t.billingType || "monthly") === "monthly");
+  const fifteenDayTenants = tenants.filter(t => (t.billingType || "monthly") === "15day");
   const dailyTenants = tenants.filter(t => (t.billingType || "monthly") === "daily");
-  const withDates = monthlyTenants.filter(t => t.admissionDate);
-  const withoutDates = monthlyTenants.filter(t => !t.admissionDate);
+  const cyclicTenants = [...monthlyTenants, ...fifteenDayTenants];
+  const withDates = cyclicTenants.filter(t => t.admissionDate);
+  const withoutDates = cyclicTenants.filter(t => !t.admissionDate);
 
   function tKey(t) { return `${t.floor}-${t.roomNumber}-${t.bed}`; }
 
@@ -1292,6 +1334,7 @@ function RentPage({ rooms, setRooms, today }) {
   function printReceipt(t) {
     const paidDate = t.rentPaidOn ? new Date(t.rentPaidOn) : new Date();
     const receiptNo = t.rentReceiptNo || generateReceiptNo(paidDate.toISOString());
+    const is15 = (t.billingType || "monthly") === "15day";
     generateReceiptPDF({
       name: t.name,
       phone: t.phone,
@@ -1301,7 +1344,9 @@ function RentPage({ rooms, setRooms, today }) {
       amount: t.rentAmount,
       mode: t.rentPaymentMode,
       receiptNo,
-      cycleNote: t.rentStatus ? `Due on ${t.rentStatus.dueDay} · Monthly` : "Monthly",
+      cycleNote: is15
+        ? (t.rentStatus ? `15-Day Cycle · next due ${fmtDateIST(t.rentStatus.nextDue, { day: "numeric", month: "short" })}` : "15-Day Cycle")
+        : (t.rentStatus ? `Due on ${t.rentStatus.dueDay} · Monthly` : "Monthly"),
     });
   }
 
@@ -1329,10 +1374,15 @@ function RentPage({ rooms, setRooms, today }) {
   }
 
   const categorized = withDates.map(t => {
-    const rentStatus = getRentStatus(t.admissionDate, today);
-    const isPaid = !!rentStatus && isActiveForCycle(t.rentPaidOn, rentStatus.dueDay, today);
-    const isSnoozed = !isPaid && !!rentStatus && isActiveForCycle(t.rentSnoozedAt, rentStatus.dueDay, today);
-    return { ...t, rentStatus, isPaid, isSnoozed };
+    const is15 = (t.billingType || "monthly") === "15day";
+    const rentStatus = is15 ? getRentStatus15(t.admissionDate, today) : getRentStatus(t.admissionDate, today);
+    const isPaid = !!rentStatus && (is15
+      ? isActiveForCycle15(t.rentPaidOn, rentStatus.cycleStart)
+      : isActiveForCycle(t.rentPaidOn, rentStatus.dueDay, today));
+    const isSnoozed = !isPaid && !!rentStatus && (is15
+      ? isActiveForCycle15(t.rentSnoozedAt, rentStatus.cycleStart)
+      : isActiveForCycle(t.rentSnoozedAt, rentStatus.dueDay, today));
+    return { ...t, rentStatus, isPaid, isSnoozed, is15 };
   });
   const allDue = categorized.filter(t => !t.isPaid && !t.isSnoozed);
   const dueToday = allDue.filter(t => t.rentStatus.type === "due_today");
@@ -1349,18 +1399,16 @@ function RentPage({ rooms, setRooms, today }) {
   else if (filter === "paid") shown = paidList;
   else if (filter === "snoozed") shown = snoozedList;
 
+  // Group by a stable key — monthly tenants group by day-of-month (they
+  // recur on the same date every month), 15-day tenants group by their
+  // actual next-due date (their cycle isn't tied to calendar months).
   const grouped = {};
   shown.forEach(t => {
-    const day = t.rentStatus?.dueDay || 0;
-    if (!grouped[day]) grouped[day] = [];
-    grouped[day].push(t);
+    const key = t.is15 ? `f-${t.rentStatus.nextDue.toDateString()}` : `m-${t.rentStatus?.dueDay || 0}`;
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(t);
   });
-  const sortedDays = Object.keys(grouped).map(Number).sort((a, b) => {
-    const td = today.getDate();
-    const da = a >= td ? a - td : 31 - td + a;
-    const db = b >= td ? b - td : 31 - td + b;
-    return da - db;
-  });
+  const sortedKeys = Object.keys(grouped).sort((ka, kb) => grouped[ka][0].rentStatus.daysUntil - grouped[kb][0].rentStatus.daysUntil);
 
   const totalToCollect = [...dueToday, ...dueSoon].filter(t => t.rentAmount).reduce((s, t) => s + Number(t.rentAmount), 0);
   const totalCollected = paidList.filter(t => t.rentAmount).reduce((s, t) => s + Number(t.rentAmount), 0);
@@ -1516,17 +1564,25 @@ function RentPage({ rooms, setRooms, today }) {
           <div style={{ fontWeight: 600 }}>{filter === "paid" ? "No payments marked yet" : filter === "snoozed" ? "Nothing snoozed" : "No tenants here"}</div>
         </div>
       ) : (
-        sortedDays.map(day => (
-          <div key={day} style={{ marginBottom: 20 }}>
+        sortedKeys.map(key => {
+          const group = grouped[key];
+          const first = group[0];
+          const headerLabel = filter === "paid" ? "✅ Paid this cycle"
+            : filter === "snoozed" ? "⏭️ Snoozed"
+            : first.rentStatus.type === "due_today" ? "🔴 Due Today"
+            : first.is15 ? `🔁 ${fmtDateIST(first.rentStatus.nextDue, { day: "numeric", month: "short" })} · 15-Day Cycle`
+            : `📅 ${ordinal(first.rentStatus.dueDay)} of every month`;
+          return (
+          <div key={key} style={{ marginBottom: 20 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#1a2332" }}>
-                {filter === "paid" ? "✅ Paid this cycle" : filter === "snoozed" ? "⏭️ Snoozed" : day === today.getDate() ? "🔴 Due Today" : `📅 ${ordinal(day)} of every month`}
+                {headerLabel}
               </div>
               <div style={{ height: 1, flex: 1, background: "#e2e8f0" }} />
-              <span style={{ fontSize: 12, color: "#94a3b8" }}>{grouped[day].length}</span>
+              <span style={{ fontSize: 12, color: "#94a3b8" }}>{group.length}</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {grouped[day].map((t, idx) => {
+              {group.map((t, idx) => {
                 const rs = t.rentStatus;
                 const key = tKey(t);
                 const isPaid = t.isPaid;
@@ -1547,7 +1603,7 @@ function RentPage({ rooms, setRooms, today }) {
                           {/* RENT AMOUNT BADGE - big and visible */}
                           {t.rentAmount && (
                             <span style={{ background: "#f0fdf4", color: "#15803d", fontWeight: 800, fontSize: 15, padding: "3px 12px", borderRadius: 10, border: "2px solid #86efac" }}>
-                              ₹{Number(t.rentAmount).toLocaleString("en-IN")}/mo
+                              ₹{Number(t.rentAmount).toLocaleString("en-IN")}{t.is15 ? "/15 days" : "/mo"}
                             </span>
                           )}
                         </div>
@@ -1599,7 +1655,8 @@ function RentPage({ rooms, setRooms, today }) {
               })}
             </div>
           </div>
-        ))
+          );
+        })
       )}
 
       {/* Paid confirmation modal */}
@@ -2260,7 +2317,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                 <div style={{ marginTop: 5, display: "flex", flexDirection: "column", gap: 2 }}>
                   {active.slice(0, 2).map((t, i) => (
                     <div key={i} style={{ fontSize: 10, color: "#374151", background: "#fff9", borderRadius: 5, padding: "2px 5px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {(t.billingType||'monthly')==='daily'?'☀️':'👤'} {t.name}{t.phone ? ` · ${t.phone}` : ""}
+                      {(t.billingType||'monthly')==='daily'?'☀️':(t.billingType||'monthly')==='15day'?'🔁':'👤'} {t.name}{t.phone ? ` · ${t.phone}` : ""}
                     </div>
                   ))}
                   {active.length > 2 && <div style={{ fontSize: 10, color: "#94a3b8" }}>+{active.length - 2} more</div>}
@@ -2428,16 +2485,16 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                       <textarea placeholder="Why are they staying? e.g. studying in nearby college, working at XYZ company…" value={t.reasonToStay || ""} onChange={e => updateTenant(i, "reasonToStay", e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} />
                     </div>
                     {/* Billing type toggle */}
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginRight: 4 }}>BILLING:</span>
-                      {["monthly", "daily"].map(bt => (
+                      {["monthly", "15day", "daily"].map(bt => (
                         <button key={bt} onClick={() => updateTenant(i, "billingType", bt)} style={{
                           padding: "5px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
-                          background: (t.billingType || "monthly") === bt ? (bt === "daily" ? "#f59e0b" : "#3b82f6") : "#e2e8f0",
+                          background: (t.billingType || "monthly") === bt ? (bt === "daily" ? "#f59e0b" : bt === "15day" ? "#8b5cf6" : "#3b82f6") : "#e2e8f0",
                           color: (t.billingType || "monthly") === bt ? "#fff" : "#64748b",
                           transition: "all 0.15s",
                         }}>
-                          {bt === "monthly" ? "📅 Monthly" : "☀️ Per Day"}
+                          {bt === "monthly" ? "📅 Monthly" : bt === "15day" ? "🔁 15-Day" : "☀️ Per Day"}
                         </button>
                       ))}
                     </div>
@@ -2460,6 +2517,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                       return <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>☀️ {days} day{days !== 1 ? "s" : ""} stay · {fmt(t.admissionDate)} → {fmt(t.checkoutDate)}</div>;
                     })()}
                     {(t.billingType || "monthly") === "monthly" && t.admissionDate && <div style={{ fontSize: 11, color: "#64748b" }}>📅 Admitted: {fmt(t.admissionDate)} · Rent due on {ordinal(new Date(t.admissionDate + "T00:00:00").getDate())} every month</div>}
+                    {(t.billingType || "monthly") === "15day" && t.admissionDate && <div style={{ fontSize: 11, color: "#64748b" }}>🔁 Admitted: {fmt(t.admissionDate)} · Rent due every 15 days from admission</div>}
                   </div>
                 </div>
               ))}
@@ -2708,7 +2766,7 @@ function HistoryPage() {
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
                 <ContactButtons phone={t.phone} size="small" />
                 <div style={{ fontSize: 10, background: "#f1f5f9", color: "#64748b", padding: "2px 8px", borderRadius: 99, fontWeight: 600 }}>
-                  {t.billing_type === "daily" ? "☀️ Per Day" : "📅 Monthly"}
+                  {t.billing_type === "daily" ? "☀️ Per Day" : t.billing_type === "15day" ? "🔁 15-Day" : "📅 Monthly"}
                 </div>
               </div>
             </div>
