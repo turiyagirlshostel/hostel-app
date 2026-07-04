@@ -356,7 +356,7 @@ async function archiveTenants(oldTenants, roomId, floor, roomNumber) {
       reason_to_stay: t.reasonToStay || "",
       rent_amount: t.rentAmount || "",
       admission_date: t.admissionDate || "",
-      checkout_date: t.checkoutDate || new Date().toISOString().slice(0,10),
+      checkout_date: t.checkoutDate || istDateStr(),
       billing_type: t.billingType || "monthly",
       deposit_amount: t.depositAmount || null,
       deposit_paid_on: t.depositPaidOn || null,
@@ -414,16 +414,46 @@ function getOccupied(room) {
 
 // Guaranteed-unique receipt number — built from the exact payment instant,
 // so no database round-trip or counter is needed to avoid collisions.
+// ── INDIA STANDARD TIME HELPERS ──────────────────────────────────
+// Everything in the app — "today", due dates, receipt numbers, displayed
+// dates — should follow India time (UTC+5:30, no DST), regardless of what
+// timezone the device or server happens to be set to. These use the Intl
+// API against the real 'Asia/Kolkata' zone, so they're accurate even if a
+// staff member's phone is misconfigured.
+function istParts(d = new Date()) {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  });
+  const p = {};
+  fmt.formatToParts(d).forEach(part => { if (part.type !== "literal") p[part.type] = part.value; });
+  return p;
+}
+function istDateStr(d = new Date()) {
+  const p = istParts(d);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+// A Date object whose getFullYear/getMonth/getDate/getHours etc. all read
+// back as India-time wall-clock values — safe to use anywhere the app reads
+// "today" for calendar/day-of-month logic.
+function istNow() {
+  const p = istParts(new Date());
+  return new Date(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second));
+}
+// Wrapper around toLocaleDateString that always renders in India time.
+function fmtDateIST(d, opts = {}) {
+  return d.toLocaleDateString("en-IN", { ...opts, timeZone: "Asia/Kolkata" });
+}
+
 function generateReceiptNo(isoString, prefix = "RC") {
-  const d = new Date(isoString);
-  const pad = (n, len = 2) => String(n).padStart(len, "0");
-  return `${prefix}-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-${pad(d.getMilliseconds(),3)}`;
+  const p = istParts(new Date(isoString));
+  return `${prefix}-${p.year}${p.month}${p.day}-${p.hour}${p.minute}${p.second}-${String(new Date(isoString).getMilliseconds()).padStart(3,"0")}`;
 }
 
 function fmt(dateStr) {
   if (!dateStr) return "";
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  const d = new Date(dateStr + "T00:00:00+05:30");
+  return fmtDateIST(d, { day: "2-digit", month: "short", year: "numeric" });
 }
 
 function ordinal(n) {
@@ -1013,7 +1043,7 @@ function TenantHistoryPanel({ paymentsLog, loading, search, setSearch }) {
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2332" }}>{p.tenant_name}</div>
                   <div style={{ fontSize: 11, color: "#94a3b8" }}>
-                    {FLOOR_LABELS[p.floor] || "Floor " + p.floor} · Room {p.room_number} · {new Date(p.paid_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} · {p.payment_mode || "mode not set"}
+                    {FLOOR_LABELS[p.floor] || "Floor " + p.floor} · Room {p.room_number} · {fmtDateIST(new Date(p.paid_at), { day: "numeric", month: "short", year: "numeric" })} · {p.payment_mode || "mode not set"}
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -1098,7 +1128,7 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2332" }}>{p.tenant_name}</div>
                       <div style={{ fontSize: 11, color: "#94a3b8" }}>
-                        {FLOOR_LABELS[p.floor] || "Floor " + p.floor} · Room {p.room_number} · {new Date(p.paid_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · {p.payment_mode || "mode not set"}
+                        {FLOOR_LABELS[p.floor] || "Floor " + p.floor} · Room {p.room_number} · {fmtDateIST(new Date(p.paid_at), { day: "numeric", month: "short" })} · {p.payment_mode || "mode not set"}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -1133,7 +1163,7 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
     ["Tenant", name],
     ["Room", `${floorLabel} - Room ${roomNumber}`],
     ["Phone", phone || "-"],
-    ["Date", paidDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })],
+    ["Date", fmtDateIST(paidDate, { day: "numeric", month: "long", year: "numeric" })],
     ["Mode", mode || "-"],
     ["Note", cycleNote || "-"],
   ];
@@ -1153,7 +1183,7 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
   doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(160);
   doc.text("This is a system-generated receipt. Keep it for your records.", 160, y + 90, { align: "center" });
 
-  const fileDate = paidDate.toISOString().slice(0, 10);
+  const fileDate = istDateStr(paidDate);
   const safeName = (name || "tenant").trim().replace(/[^a-zA-Z0-9]+/g, "_");
   doc.save(`${safeName}_${fileTag ? fileTag + "_" : ""}${fileDate}.pdf`);
 }
@@ -1352,7 +1382,7 @@ function RentPage({ rooms, setRooms, today }) {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 3px" }}>💰 Rent Due</h1>
           <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
-            {today.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            {fmtDateIST(today, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -1408,7 +1438,7 @@ function RentPage({ rooms, setRooms, today }) {
       {/* This calendar month's collections — resets automatically on the 1st, no manual reset needed */}
       <div style={{ background: "#eff6ff", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #93c5fd", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>COLLECTED IN {today.toLocaleDateString("en-IN", { month: "long" }).toUpperCase()}</div>
+          <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>COLLECTED IN {fmtDateIST(today, { month: "long" }).toUpperCase()}</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#1d4ed8" }}>₹{collectedThisMonth.toLocaleString("en-IN")}</div>
         </div>
         <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "right" }}>{paidThisCalendarMonth.length} payment{paidThisCalendarMonth.length !== 1 ? "s" : ""} since 1st<br/>auto-resets next month</div>
@@ -1525,7 +1555,7 @@ function RentPage({ rooms, setRooms, today }) {
                         </div>
                         <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
                           Joined: {fmt(t.admissionDate)}
-                          {isPaid && t.rentPaidOn && ` · Paid: ${new Date(t.rentPaidOn).toLocaleDateString("en-IN")}`}
+                          {isPaid && t.rentPaidOn && ` · Paid: ${fmtDateIST(new Date(t.rentPaidOn))}`}
                           {isSnoozed && " · Snoozed to next cycle"}
                         </div>
                       </div>
@@ -1951,7 +1981,7 @@ function DepositsPage({ rooms, setRooms, today }) {
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>{row.tenant_name}</div>
                       <div style={{ fontSize: 12, color: "#64748b" }}>Floor {row.floor} · Room {row.room_number}</div>
-                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Collected {new Date(row.collected_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} · {row.payment_mode}</div>
+                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Collected {fmtDateIST(new Date(row.collected_at), { day: "2-digit", month: "short", year: "numeric" })} · {row.payment_mode}</div>
                     </div>
                     <div style={{ fontSize: 18, fontWeight: 800, color: "#1d4ed8" }}>₹{Number(row.amount).toLocaleString("en-IN")}</div>
                   </div>
@@ -1978,8 +2008,8 @@ function DepositsPage({ rooms, setRooms, today }) {
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{row.tenant_name}</div>
                     <div style={{ fontSize: 12, color: "#64748b" }}>Floor {row.floor} · Room {row.room_number}</div>
-                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Collected ₹{Number(row.amount).toLocaleString("en-IN")} on {new Date(row.collected_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</div>
-                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Returned {new Date(row.returned_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} · {row.return_mode}{row.return_note ? ` · ${row.return_note}` : ""}</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Collected ₹{Number(row.amount).toLocaleString("en-IN")} on {fmtDateIST(new Date(row.collected_at), { day: "2-digit", month: "short", year: "numeric" })}</div>
+                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Returned {fmtDateIST(new Date(row.returned_at), { day: "2-digit", month: "short", year: "numeric" })} · {row.return_mode}{row.return_note ? ` · ${row.return_note}` : ""}</div>
                   </div>
                   <div style={{ fontSize: 18, fontWeight: 800, color: "#475569" }}>₹{Number(row.return_amount).toLocaleString("en-IN")}</div>
                 </div>
@@ -2516,7 +2546,7 @@ function HistoryPage() {
       t.reason_to_stay||"", t.rent_amount ? `Rs.${t.rent_amount}` : "",
       t.floor, t.room_number, (t.bed_index||0)+1,
       t.admission_date||"", t.checkout_date||"", t.billing_type||"monthly",
-      t.archived_at ? new Date(t.archived_at).toLocaleDateString("en-IN") : ""
+      t.archived_at ? fmtDateIST(new Date(t.archived_at)) : ""
     ]);
     return [headers, ...data].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
   }
@@ -2526,7 +2556,7 @@ function HistoryPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `hosteldesk-${label}-${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `hosteldesk-${label}-${istDateStr()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -2585,11 +2615,11 @@ function HistoryPage() {
             <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginBottom: 8 }}>QUICK SELECT</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {[
-                { label: "This Month", fn: () => { const n = new Date(); setDateFrom(`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-01`); setDateTo(n.toISOString().slice(0,10)); }},
-                { label: "Last Month", fn: () => { const n = new Date(); const lm = new Date(n.getFullYear(), n.getMonth()-1, 1); const le = new Date(n.getFullYear(), n.getMonth(), 0); setDateFrom(lm.toISOString().slice(0,10)); setDateTo(le.toISOString().slice(0,10)); }},
-                { label: "Last 3 Months", fn: () => { const n = new Date(); const s = new Date(n); s.setMonth(s.getMonth()-3); setDateFrom(s.toISOString().slice(0,10)); setDateTo(n.toISOString().slice(0,10)); }},
-                { label: "This Year", fn: () => { const n = new Date(); setDateFrom(`${n.getFullYear()}-01-01`); setDateTo(n.toISOString().slice(0,10)); }},
-                { label: "Last Year", fn: () => { const y = new Date().getFullYear()-1; setDateFrom(`${y}-01-01`); setDateTo(`${y}-12-31`); }},
+                { label: "This Month", fn: () => { const n = istNow(); setDateFrom(`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-01`); setDateTo(istDateStr(n)); }},
+                { label: "Last Month", fn: () => { const n = istNow(); const lm = new Date(n.getFullYear(), n.getMonth()-1, 1); const le = new Date(n.getFullYear(), n.getMonth(), 0); setDateFrom(istDateStr(lm)); setDateTo(istDateStr(le)); }},
+                { label: "Last 3 Months", fn: () => { const n = istNow(); const s = new Date(n); s.setMonth(s.getMonth()-3); setDateFrom(istDateStr(s)); setDateTo(istDateStr(n)); }},
+                { label: "This Year", fn: () => { const n = istNow(); setDateFrom(`${n.getFullYear()}-01-01`); setDateTo(istDateStr(n)); }},
+                { label: "Last Year", fn: () => { const y = istNow().getFullYear()-1; setDateFrom(`${y}-01-01`); setDateTo(`${y}-12-31`); }},
               ].map(q => (
                 <button key={q.label} onClick={q.fn} style={{ padding: "5px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#f8fafc", fontSize: 12, cursor: "pointer", fontWeight: 500, color: "#374151" }}>
                   {q.label}
@@ -2671,7 +2701,7 @@ function HistoryPage() {
                 <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 5, display: "flex", gap: 10, flexWrap: "wrap" }}>
                   {t.admission_date && <span>📅 Joined: {fmt(t.admission_date)}</span>}
                   {t.checkout_date && <span>🚪 Left: {fmt(t.checkout_date)}</span>}
-                  {t.archived_at && <span>🗃️ Archived: {new Date(t.archived_at).toLocaleDateString("en-IN")}</span>}
+                  {t.archived_at && <span>🗃️ Archived: {fmtDateIST(new Date(t.archived_at))}</span>}
                 </div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
@@ -2893,7 +2923,7 @@ function App() {
   const [userRole, setUserRole] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  const today = new Date();
+  const today = istNow();
 
   // Auth check on startup
   useEffect(() => {
