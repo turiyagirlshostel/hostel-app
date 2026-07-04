@@ -1657,6 +1657,7 @@ function DepositsPage({ rooms, setRooms, today }) {
   const [depositsLog, setDepositsLog] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("pending");
+  const [depositSearch, setDepositSearch] = useState("");
   const [busyKey, setBusyKey] = useState(null);
 
   const [collectModal, setCollectModal] = useState(null); // tenant
@@ -1844,9 +1845,12 @@ function DepositsPage({ rooms, setRooms, today }) {
   }
 
   const tenants = getAllTenants(rooms);
-  const pending = tenants.filter(t => Number(t.depositAmount) > 0 && !t.depositPaidOn);
-  const held = (depositsLog || []).filter(d => !d.returned_at);
-  const returned = (depositsLog || []).filter(d => d.returned_at);
+  const term = depositSearch.trim().toLowerCase();
+  const matchesTerm = name => term.length === 0 || (name || "").toLowerCase().includes(term);
+
+  const pending = tenants.filter(t => Number(t.depositAmount) > 0 && !t.depositPaidOn && matchesTerm(t.name));
+  const held = (depositsLog || []).filter(d => !d.returned_at && matchesTerm(d.tenant_name));
+  const returned = (depositsLog || []).filter(d => d.returned_at && matchesTerm(d.tenant_name));
 
   const totalHeld = held.reduce((s, d) => s + (Number(d.amount) || 0), 0);
   const totalReturned = returned.reduce((s, d) => s + (Number(d.return_amount) || 0), 0);
@@ -1877,6 +1881,20 @@ function DepositsPage({ rooms, setRooms, today }) {
         <div style={{ fontSize: 16, fontWeight: 800, color: "#15803d" }}>₹{totalEverCollected.toLocaleString("en-IN")}</div>
       </div>
 
+      {/* Search */}
+      <div style={{ position: "relative", marginBottom: 12 }}>
+        <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", fontSize: 16 }}>🔍</span>
+        <input
+          value={depositSearch}
+          onChange={e => setDepositSearch(e.target.value)}
+          placeholder="Search by tenant name…"
+          style={{ ...inputStyle, paddingLeft: 40, fontSize: 14, padding: "10px 14px 10px 40px", borderRadius: 10, border: "1.5px solid #e2e8f0", boxSizing: "border-box" }}
+        />
+        {depositSearch && (
+          <button onClick={() => setDepositSearch("")} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "#e2e8f0", border: "none", borderRadius: "50%", width: 22, height: 22, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        )}
+      </div>
+
       {/* Filter chips */}
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         {[
@@ -1897,7 +1915,7 @@ function DepositsPage({ rooms, setRooms, today }) {
 
       {!loading && filter === "pending" && (
         pending.length === 0 ? (
-          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8" }}>No deposits pending collection. Set a deposit amount on a tenant's card in Rooms to see them here.</div>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8" }}>{term ? `No pending deposits match "${depositSearch}".` : "No deposits pending collection. Set a deposit amount on a tenant's card in Rooms to see them here."}</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {pending.map((t, i) => {
@@ -1922,7 +1940,7 @@ function DepositsPage({ rooms, setRooms, today }) {
 
       {!loading && filter === "held" && (
         held.length === 0 ? (
-          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8" }}>No deposits currently held.</div>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8" }}>{term ? `No held deposits match "${depositSearch}".` : "No deposits currently held."}</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {held.map(row => {
@@ -1951,7 +1969,7 @@ function DepositsPage({ rooms, setRooms, today }) {
 
       {!loading && filter === "returned" && (
         returned.length === 0 ? (
-          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8" }}>No returned deposits yet.</div>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8" }}>{term ? `No returned deposits match "${depositSearch}".` : "No returned deposits yet."}</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {returned.map(row => (
