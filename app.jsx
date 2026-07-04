@@ -1164,6 +1164,7 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
     ["Room", `${floorLabel} - Room ${roomNumber}`],
     ["Phone", phone || "-"],
     ["Date", fmtDateIST(paidDate, { day: "numeric", month: "long", year: "numeric" })],
+    ["Time", fmtDateIST(paidDate, { hour: "numeric", minute: "2-digit", hour12: true }) + " IST"],
     ["Mode", mode || "-"],
     ["Note", cycleNote || "-"],
   ];
