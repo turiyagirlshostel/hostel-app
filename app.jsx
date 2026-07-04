@@ -197,6 +197,12 @@ async function loadAllRooms() {
         rentPaymentMode: t.rent_payment_mode || "",
         rentReceiptNo: t.rent_receipt_no || "",
         rentSnoozedAt: t.rent_snoozed_at || "",
+        depositAmount: t.deposit_amount || "",
+        depositPaidOn: t.deposit_paid_on || "",
+        depositPaymentMode: t.deposit_payment_mode || "",
+        depositReceiptNo: t.deposit_receipt_no || "",
+        depositReturnedOn: t.deposit_returned_on || "",
+        depositReturnAmount: t.deposit_return_amount || "",
         dbId: t.id,
       };
     }
@@ -224,6 +230,23 @@ async function loadPayments() {
   return rows || [];
 }
 
+// ── SECURITY DEPOSITS — completely separate permanent table from `payments`,
+// so it never touches rent data/reports and survives a tenant being cleared
+// out of their room (archived) later.
+async function createDepositRecord(entry) {
+  const rows = await sbFetch("/security_deposits", "POST", entry, { "Prefer": "return=representation" });
+  return rows && rows[0];
+}
+
+async function updateDepositRecord(id, fields) {
+  await sbFetch(`/security_deposits?id=eq.${id}`, "PATCH", fields, { "Prefer": "return=minimal" });
+}
+
+async function loadDeposits() {
+  const rows = await sbFetch("/security_deposits?select=*&order=collected_at.desc&limit=20000");
+  return rows || [];
+}
+
 async function saveRoom(room, tenants) {
   const id = `${room.floor}-${room.number}`;
   // Update room beds and label
@@ -245,6 +268,16 @@ async function saveRoom(room, tenants) {
         await archiveTenants(changed.map(t => ({
           ...t, aadharId: t.aadhar_id, admissionDate: t.admission_date,
           checkoutDate: t.checkout_date, billingType: t.billing_type,
+          // NOTE: these aliases are required — `t` here is a raw Supabase row
+          // (snake_case), and archiveTenants reads camelCase. Without an
+          // alias for a field, it silently archives as blank.
+          fatherName: t.father_name, fatherPhone: t.father_phone,
+          guardianName: t.guardian_name, guardianPhone: t.guardian_phone,
+          occupationPlace: t.occupation_place, occupationId: t.occupation_id,
+          reasonToStay: t.reason_to_stay, rentAmount: t.rent_amount,
+          depositAmount: t.deposit_amount, depositPaidOn: t.deposit_paid_on,
+          depositPaymentMode: t.deposit_payment_mode, depositReceiptNo: t.deposit_receipt_no,
+          depositReturnedOn: t.deposit_returned_on, depositReturnAmount: t.deposit_return_amount,
         })), id, room.floor, room.number);
       }
     }
@@ -282,6 +315,12 @@ async function saveRoom(room, tenants) {
       rent_payment_mode: t.rentPaymentMode || null,
       rent_receipt_no: t.rentReceiptNo || null,
       rent_snoozed_at: t.rentSnoozedAt || null,
+      deposit_amount: t.depositAmount || null,
+      deposit_paid_on: t.depositPaidOn || null,
+      deposit_payment_mode: t.depositPaymentMode || null,
+      deposit_receipt_no: t.depositReceiptNo || null,
+      deposit_returned_on: t.depositReturnedOn || null,
+      deposit_return_amount: t.depositReturnAmount || null,
     }))
     .filter(t => t.name.trim() !== "");
   if (toInsert.length > 0) {
@@ -319,6 +358,12 @@ async function archiveTenants(oldTenants, roomId, floor, roomNumber) {
       admission_date: t.admissionDate || "",
       checkout_date: t.checkoutDate || new Date().toISOString().slice(0,10),
       billing_type: t.billingType || "monthly",
+      deposit_amount: t.depositAmount || null,
+      deposit_paid_on: t.depositPaidOn || null,
+      deposit_payment_mode: t.depositPaymentMode || null,
+      deposit_receipt_no: t.depositReceiptNo || null,
+      deposit_returned_on: t.depositReturnedOn || null,
+      deposit_return_amount: t.depositReturnAmount || null,
       archived_at: new Date().toISOString(),
     }));
   if (toArchive.length === 0) return;
@@ -335,7 +380,7 @@ const ROOM_COUNTS = { 0: 3, 1: 40, 2: 40, 3: 40, 4: 4 };
 const FLOOR_LABELS = { 0: "Ground", 1: "Floor 1", 2: "Floor 2", 3: "Floor 3", 4: "Floor 4" };
 
 function makeBeds(count, existing = []) {
-  return Array.from({ length: count }, (_, i) => existing[i] || { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "", rentPaidOn: "", rentSnoozedAt: "", rentPaymentMode: "", rentReceiptNo: "" });
+  return Array.from({ length: count }, (_, i) => existing[i] || { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "", rentPaidOn: "", rentSnoozedAt: "", rentPaymentMode: "", rentReceiptNo: "", depositAmount: "", depositPaidOn: "", depositPaymentMode: "", depositReceiptNo: "", depositReturnedOn: "", depositReturnAmount: "" });
 }
 
 function initRooms() {
@@ -369,10 +414,10 @@ function getOccupied(room) {
 
 // Guaranteed-unique receipt number — built from the exact payment instant,
 // so no database round-trip or counter is needed to avoid collisions.
-function generateReceiptNo(isoString) {
+function generateReceiptNo(isoString, prefix = "RC") {
   const d = new Date(isoString);
   const pad = (n, len = 2) => String(n).padStart(len, "0");
-  return `RC-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-${pad(d.getMilliseconds(),3)}`;
+  return `${prefix}-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-${pad(d.getMilliseconds(),3)}`;
 }
 
 function fmt(dateStr) {
@@ -391,7 +436,7 @@ function getAllTenants(rooms) {
   const list = [];
   Object.values(rooms).forEach(room => {
     room.tenants.forEach((t, bi) => {
-      if (t.name.trim()) list.push({ ...t, floor: room.floor, roomNumber: room.number, bed: bi + 1, roomLabel: room.label, fatherName: t.fatherName||'', fatherPhone: t.fatherPhone||'', guardianName: t.guardianName||'', guardianPhone: t.guardianPhone||'', address: t.address||'', city: t.city||'', occupation: t.occupation||'', occupationPlace: t.occupationPlace||'', occupationId: t.occupationId||'', reasonToStay: t.reasonToStay||'', rentAmount: t.rentAmount||'' });
+      if (t.name.trim()) list.push({ ...t, floor: room.floor, roomNumber: room.number, bed: bi + 1, roomLabel: room.label, fatherName: t.fatherName||'', fatherPhone: t.fatherPhone||'', guardianName: t.guardianName||'', guardianPhone: t.guardianPhone||'', address: t.address||'', city: t.city||'', occupation: t.occupation||'', occupationPlace: t.occupationPlace||'', occupationId: t.occupationId||'', reasonToStay: t.reasonToStay||'', rentAmount: t.rentAmount||'', depositAmount: t.depositAmount||'' });
     });
   });
   return list;
@@ -497,6 +542,7 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
     { id: "rooms", icon: "🛏", label: "Rooms", show: true },
     { id: "search", icon: "🔍", label: "Tenants", show: true },
     { id: "rent", icon: "💰", label: "Rent Due", show: isManager },
+    { id: "deposits", icon: "🔒", label: "Deposits", show: isManager },
     { id: "history", icon: "🗂️", label: "History", show: isAdmin },
     { id: "users", icon: "👥", label: "Users", show: isAdmin },
   ].filter(n => n.show);
@@ -857,6 +903,11 @@ function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true }) 
                 {isManager && t.occupationPlace && <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>💼 {t.occupation === "job" ? "Works at" : t.occupation === "college" ? "Studies at" : "At"}: {t.occupationPlace}{t.occupationId ? ` (ID: ${t.occupationId})` : ""}</div>}
                 {isManager && t.reasonToStay && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1, fontStyle: "italic" }}>"{t.reasonToStay}"</div>}
                 {isManager && t.rentAmount && <div style={{ fontSize: 12, fontWeight: 700, color: "#15803d", marginTop: 2 }}>💰 ₹{Number(t.rentAmount).toLocaleString("en-IN")}/month</div>}
+                {isManager && t.depositAmount && (
+                  <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2, color: t.depositReturnedOn ? "#64748b" : t.depositPaidOn ? "#1d4ed8" : "#b45309" }}>
+                    🔒 ₹{Number(t.depositAmount).toLocaleString("en-IN")} deposit — {t.depositReturnedOn ? "Returned" : t.depositPaidOn ? "Held" : "Pending"}
+                  </div>
+                )}
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
                 {t.phone && <div style={{ fontSize: 12, color: "#64748b" }}>{t.phone}</div>}
@@ -983,7 +1034,7 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
 // ── RENT DUE PAGE ─────────────────────────────────────────────
 // Shared receipt PDF generator — used both for a freshly-marked-paid tenant
 // and for reprinting any past payment from the permanent ledger in Reports.
-function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amount, mode, receiptNo, cycleNote }) {
+function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amount, mode, receiptNo, cycleNote, docTitle = "Rent Receipt", amountLabel = "AMOUNT PAID", fileTag = "" }) {
   const { jsPDF } = window.jspdf || {};
   if (!jsPDF) { alert("PDF library still loading — try again in a moment."); return; }
 
@@ -991,15 +1042,15 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
   doc.setFont("helvetica", "bold"); doc.setFontSize(16);
   doc.text("Turiya Hostel", 24, 40);
   doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(120);
-  doc.text(`Rent Receipt · No. ${receiptNo}`, 24, 56);
+  doc.text(`${docTitle} · No. ${receiptNo}`, 24, 56);
 
   const rows = [
     ["Tenant", name],
     ["Room", `${floorLabel} - Room ${roomNumber}`],
     ["Phone", phone || "-"],
-    ["Payment Date", paidDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })],
-    ["Payment Mode", mode || "-"],
-    ["Payment Cycle", cycleNote || "Monthly"],
+    ["Date", paidDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })],
+    ["Mode", mode || "-"],
+    ["Note", cycleNote || "-"],
   ];
   let y = 84;
   doc.setFontSize(11);
@@ -1010,7 +1061,7 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
     y += 26;
   });
 
-  doc.setFontSize(9); doc.setTextColor(150); doc.text("AMOUNT PAID", 160, y + 24, { align: "center" });
+  doc.setFontSize(9); doc.setTextColor(150); doc.text(amountLabel, 160, y + 24, { align: "center" });
   doc.setFont("helvetica", "bold"); doc.setFontSize(26); doc.setTextColor(21, 128, 61);
   doc.text(`Rs ${Number(amount || 0).toLocaleString("en-IN")}`, 160, y + 52, { align: "center" });
 
@@ -1019,7 +1070,7 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
 
   const fileDate = paidDate.toISOString().slice(0, 10);
   const safeName = (name || "tenant").trim().replace(/[^a-zA-Z0-9]+/g, "_");
-  doc.save(`${safeName}_${fileDate}.pdf`);
+  doc.save(`${safeName}_${fileTag ? fileTag + "_" : ""}${fileDate}.pdf`);
 }
 
 function RentPage({ rooms, setRooms, today }) {
@@ -1097,7 +1148,20 @@ function RentPage({ rooms, setRooms, today }) {
     } catch (e) { console.warn("Payment log failed (table may not exist yet):", e); }
   }
   async function undoPaid(t) {
-    await patchTenant(t, { rent_paid_on: null }, { rentPaidOn: "" });
+    const receiptNo = t.rentReceiptNo;
+    await patchTenant(
+      t,
+      { rent_paid_on: null, rent_payment_mode: null, rent_receipt_no: null },
+      { rentPaidOn: "", rentPaymentMode: "", rentReceiptNo: "" }
+    );
+    // Also remove the permanent ledger entry, otherwise the report keeps
+    // counting a payment that was just undone.
+    if (receiptNo) {
+      try {
+        await sbFetch(`/payments?receipt_no=eq.${receiptNo}`, "DELETE", null, { "Prefer": "return=minimal" });
+        setPaymentsLog(prev => prev ? prev.filter(p => p.receipt_no !== receiptNo) : prev);
+      } catch (e) { console.warn("Could not remove payment ledger entry:", e); }
+    }
   }
   async function snoozeTenant(t) {
     const nowIso = new Date().toISOString();
@@ -1490,6 +1554,336 @@ function RentPage({ rooms, setRooms, today }) {
   );
 }
 
+// ── SECURITY DEPOSITS PAGE ──────────────────────────────────────
+// Completely independent of rent: sourced from its own `security_deposits`
+// table, so nothing here ever touches rent data or the Rent report.
+function DepositsPage({ rooms, setRooms, today }) {
+  const [depositsLog, setDepositsLog] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("pending");
+  const [busyKey, setBusyKey] = useState(null);
+
+  const [collectModal, setCollectModal] = useState(null); // tenant
+  const [collectMode, setCollectMode] = useState("Cash");
+  const [collectModeOther, setCollectModeOther] = useState("");
+
+  const [returnModal, setReturnModal] = useState(null); // ledger row
+  const [returnAmount, setReturnAmount] = useState("");
+  const [returnMode, setReturnMode] = useState("Cash");
+  const [returnModeOther, setReturnModeOther] = useState("");
+  const [returnNote, setReturnNote] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    loadDeposits().then(rows => { setDepositsLog(rows); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  function refreshLog() {
+    loadDeposits().then(rows => setDepositsLog(rows));
+  }
+
+  function tKey(t) { return `${t.floor}-${t.roomNumber}-${t.bed}`; }
+
+  async function collectDeposit(t, mode) {
+    const key = tKey(t);
+    setBusyKey(key);
+    try {
+      const nowIso = new Date().toISOString();
+      const receiptNo = generateReceiptNo(nowIso, "SD");
+      const amount = Number(t.depositAmount) || 0;
+      await createDepositRecord({
+        receipt_no: receiptNo,
+        tenant_name: t.name,
+        phone: t.phone || "",
+        floor: t.floor,
+        room_number: t.roomNumber,
+        amount,
+        payment_mode: mode,
+        collected_at: nowIso,
+      });
+      if (t.dbId) {
+        try {
+          await sbFetch(`/tenants?id=eq.${t.dbId}`, "PATCH", { deposit_paid_on: nowIso, deposit_payment_mode: mode, deposit_receipt_no: receiptNo }, { "Prefer": "return=minimal" });
+        } catch (e) { console.warn("Could not sync tenant record:", e); }
+      }
+      setRooms(prev => {
+        const roomId = `${t.floor}-${t.roomNumber}`;
+        const room = prev[roomId];
+        if (!room) return prev;
+        const bedIndex = t.bed - 1;
+        const newTenants = room.tenants.map((tn, bi) => bi === bedIndex ? { ...tn, depositPaidOn: nowIso, depositPaymentMode: mode, depositReceiptNo: receiptNo } : tn);
+        return { ...prev, [roomId]: { ...room, tenants: newTenants } };
+      });
+      refreshLog();
+      generateReceiptPDF({
+        name: t.name, phone: t.phone, floorLabel: FLOOR_LABELS[t.floor] || "Floor " + t.floor,
+        roomNumber: t.roomNumber, paidDate: new Date(nowIso), amount, mode, receiptNo,
+        cycleNote: "Security Deposit", docTitle: "Security Deposit Receipt", amountLabel: "DEPOSIT COLLECTED", fileTag: "deposit",
+      });
+    } catch (e) {
+      console.error(e);
+      alert("Failed to record the deposit. Please check your internet connection.");
+    }
+    setBusyKey(null);
+  }
+
+  async function confirmReturn(row, amount, mode, note) {
+    setBusyKey(row.id);
+    try {
+      const nowIso = new Date().toISOString();
+      const receiptNo = generateReceiptNo(nowIso, "SDR");
+      await updateDepositRecord(row.id, {
+        returned_at: nowIso, return_amount: amount, return_mode: mode,
+        return_receipt_no: receiptNo, return_note: note || null,
+      });
+      // Sync the tenant's own record if they're still active in a room
+      setRooms(prev => {
+        let changed = false;
+        const next = { ...prev };
+        Object.keys(next).forEach(roomId => {
+          const room = next[roomId];
+          const idx = room.tenants.findIndex(tn => tn.depositReceiptNo === row.receipt_no);
+          if (idx !== -1) {
+            const matchedTenant = room.tenants[idx];
+            const newTenants = room.tenants.map((tn, i) => i === idx ? { ...tn, depositReturnedOn: nowIso, depositReturnAmount: amount } : tn);
+            next[roomId] = { ...room, tenants: newTenants };
+            changed = true;
+            if (matchedTenant.dbId) {
+              sbFetch(`/tenants?id=eq.${matchedTenant.dbId}`, "PATCH", { deposit_returned_on: nowIso, deposit_return_amount: amount }, { "Prefer": "return=minimal" }).catch(() => {});
+            }
+          }
+        });
+        return changed ? next : prev;
+      });
+      refreshLog();
+      generateReceiptPDF({
+        name: row.tenant_name, phone: row.phone, floorLabel: FLOOR_LABELS[row.floor] || "Floor " + row.floor,
+        roomNumber: row.room_number, paidDate: new Date(nowIso), amount, mode, receiptNo,
+        cycleNote: note || "Security Deposit Return", docTitle: "Deposit Return Receipt", amountLabel: "AMOUNT RETURNED", fileTag: "deposit_return",
+      });
+    } catch (e) {
+      console.error(e);
+      alert("Failed to record the return. Please check your internet connection.");
+    }
+    setBusyKey(null);
+  }
+
+  function reprintCollected(row) {
+    generateReceiptPDF({
+      name: row.tenant_name, phone: row.phone, floorLabel: FLOOR_LABELS[row.floor] || "Floor " + row.floor,
+      roomNumber: row.room_number, paidDate: new Date(row.collected_at), amount: row.amount, mode: row.payment_mode,
+      receiptNo: row.receipt_no, cycleNote: "Security Deposit", docTitle: "Security Deposit Receipt", amountLabel: "DEPOSIT COLLECTED", fileTag: "deposit",
+    });
+  }
+
+  function reprintReturned(row) {
+    generateReceiptPDF({
+      name: row.tenant_name, phone: row.phone, floorLabel: FLOOR_LABELS[row.floor] || "Floor " + row.floor,
+      roomNumber: row.room_number, paidDate: new Date(row.returned_at), amount: row.return_amount, mode: row.return_mode,
+      receiptNo: row.return_receipt_no, cycleNote: row.return_note || "Security Deposit Return", docTitle: "Deposit Return Receipt", amountLabel: "AMOUNT RETURNED", fileTag: "deposit_return",
+    });
+  }
+
+  const tenants = getAllTenants(rooms);
+  const pending = tenants.filter(t => Number(t.depositAmount) > 0 && !t.depositPaidOn);
+  const held = (depositsLog || []).filter(d => !d.returned_at);
+  const returned = (depositsLog || []).filter(d => d.returned_at);
+
+  const totalHeld = held.reduce((s, d) => s + (Number(d.amount) || 0), 0);
+  const totalReturned = returned.reduce((s, d) => s + (Number(d.return_amount) || 0), 0);
+  const totalEverCollected = (depositsLog || []).reduce((s, d) => s + (Number(d.amount) || 0), 0);
+
+  return (
+    <div style={{ maxWidth: 900, margin: "0 auto", padding: "16px 12px 90px" }}>
+      <div style={{ marginBottom: 14 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 3px" }}>🔒 Security Deposits</h1>
+        <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>Separate from rent — tracked and reported independently</p>
+      </div>
+
+      {/* Money bar */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div style={{ background: "#eff6ff", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #93c5fd" }}>
+          <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>HELD NOW</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#1d4ed8" }}>₹{totalHeld.toLocaleString("en-IN")}</div>
+          <div style={{ fontSize: 11, color: "#94a3b8" }}>{held.length} deposit{held.length !== 1 ? "s" : ""}</div>
+        </div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #e2e8f0" }}>
+          <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>RETURNED (all time)</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#475569" }}>₹{totalReturned.toLocaleString("en-IN")}</div>
+          <div style={{ fontSize: 11, color: "#94a3b8" }}>{returned.length} tenant{returned.length !== 1 ? "s" : ""}</div>
+        </div>
+      </div>
+      <div style={{ background: "#f0fdf4", borderRadius: 12, padding: "10px 16px", border: "1.5px solid #86efac", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>EVER COLLECTED (all time)</div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: "#15803d" }}>₹{totalEverCollected.toLocaleString("en-IN")}</div>
+      </div>
+
+      {/* Filter chips */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        {[
+          { id: "pending", label: "Pending Collection", count: pending.length, color: "#b45309" },
+          { id: "held", label: "Held", count: held.length, color: "#1d4ed8" },
+          { id: "returned", label: "Returned", count: returned.length, color: "#64748b" },
+        ].map(f => (
+          <button key={f.id} onClick={() => setFilter(f.id)} style={{
+            flex: 1, padding: "10px 4px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 700,
+            border: `1.5px solid ${filter === f.id ? f.color : "#e2e8f0"}`,
+            background: filter === f.id ? f.color : "#fff",
+            color: filter === f.id ? "#fff" : "#64748b",
+          }}>{f.label} ({f.count})</button>
+        ))}
+      </div>
+
+      {loading && <div style={{ textAlign: "center", color: "#94a3b8", padding: 30 }}>Loading…</div>}
+
+      {!loading && filter === "pending" && (
+        pending.length === 0 ? (
+          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8" }}>No deposits pending collection. Set a deposit amount on a tenant's card in Rooms to see them here.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {pending.map((t, i) => {
+              const key = tKey(t);
+              const isBusy = busyKey === key;
+              return (
+                <div key={i} style={{ background: "#fff", border: "1.5px solid #fcd34d", borderLeft: "4px solid #f59e0b", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{t.name}</div>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#b45309", marginTop: 2 }}>₹{Number(t.depositAmount).toLocaleString("en-IN")}</div>
+                  </div>
+                  <button disabled={isBusy} onClick={() => { setCollectMode("Cash"); setCollectModeOther(""); setCollectModal(t); }} style={{ padding: "8px 14px", borderRadius: 10, border: "none", background: "#22c55e", color: "#fff", fontWeight: 700, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1, whiteSpace: "nowrap" }}>
+                    ✅ Mark Collected
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {!loading && filter === "held" && (
+        held.length === 0 ? (
+          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8" }}>No deposits currently held.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {held.map(row => {
+              const isBusy = busyKey === row.id;
+              return (
+                <div key={row.id} style={{ background: "#fff", border: "1.5px solid #93c5fd", borderLeft: "4px solid #1d4ed8", borderRadius: 12, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{row.tenant_name}</div>
+                      <div style={{ fontSize: 12, color: "#64748b" }}>Floor {row.floor} · Room {row.room_number}</div>
+                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Collected {new Date(row.collected_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} · {row.payment_mode}</div>
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#1d4ed8" }}>₹{Number(row.amount).toLocaleString("en-IN")}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => reprintCollected(row)} style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Receipt</button>
+                    <button disabled={isBusy} onClick={() => { setReturnAmount(String(row.amount)); setReturnMode("Cash"); setReturnModeOther(""); setReturnNote(""); setReturnModal(row); }} style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>↩️ Mark Returned</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {!loading && filter === "returned" && (
+        returned.length === 0 ? (
+          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8" }}>No returned deposits yet.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {returned.map(row => (
+              <div key={row.id} style={{ background: "#fff", border: "1.5px solid #e2e8f0", borderLeft: "4px solid #94a3b8", borderRadius: 12, padding: "12px 14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{row.tenant_name}</div>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>Floor {row.floor} · Room {row.room_number}</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Collected ₹{Number(row.amount).toLocaleString("en-IN")} on {new Date(row.collected_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</div>
+                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Returned {new Date(row.returned_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} · {row.return_mode}{row.return_note ? ` · ${row.return_note}` : ""}</div>
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#475569" }}>₹{Number(row.return_amount).toLocaleString("en-IN")}</div>
+                </div>
+                <button onClick={() => reprintReturned(row)} style={{ width: "100%", padding: "8px 0", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Return Receipt</button>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {/* Collect confirmation modal */}
+      {collectModal && (
+        <div onClick={() => setCollectModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#e2e8f0" }} /></div>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ fontSize: 52, marginBottom: 10 }}>🔒</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1a2332" }}>Confirm Deposit Received</div>
+              <div style={{ fontSize: 14, color: "#64748b", marginTop: 8 }}>Did you receive the security deposit from</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1a2332", marginTop: 4 }}>{collectModal.name}?</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Floor {collectModal.floor} · Room {collectModal.roomNumber} · Bed {collectModal.bed}</div>
+              <div style={{ marginTop: 14, display: "inline-block", background: "#eff6ff", color: "#1d4ed8", fontWeight: 800, fontSize: 28, padding: "10px 28px", borderRadius: 14, border: "2.5px solid #93c5fd" }}>
+                ₹{Number(collectModal.depositAmount).toLocaleString("en-IN")}
+              </div>
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
+              <PaymentModeSelector mode={collectMode} setMode={setCollectMode} otherText={collectModeOther} setOtherText={setCollectModeOther} />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setCollectModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
+              <button onClick={async () => {
+                const t = collectModal;
+                const mode = collectMode === "Other" ? collectModeOther.trim() : collectMode;
+                setCollectModal(null);
+                await collectDeposit(t, mode);
+              }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#22c55e", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>✅ Yes, Received!</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Return modal */}
+      {returnModal && (
+        <div onClick={() => setReturnModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#e2e8f0" }} /></div>
+            <div style={{ textAlign: "center", marginBottom: 18 }}>
+              <div style={{ fontSize: 52, marginBottom: 10 }}>↩️</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1a2332" }}>Return Deposit</div>
+              <div style={{ fontSize: 14, color: "#64748b", marginTop: 8 }}>For</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1a2332", marginTop: 4 }}>{returnModal.tenant_name}</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Floor {returnModal.floor} · Room {returnModal.room_number} · Collected ₹{Number(returnModal.amount).toLocaleString("en-IN")}</div>
+            </div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 5 }}>AMOUNT TO RETURN</label>
+            <div style={{ position: "relative", marginBottom: 14 }}>
+              <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#64748b", fontWeight: 700 }}>₹</span>
+              <input type="number" min="0" value={returnAmount} onChange={e => setReturnAmount(e.target.value)} style={{ ...inputStyle, paddingLeft: 26 }} />
+            </div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 5 }}>NOTE (optional — e.g. deduction reason)</label>
+            <input value={returnNote} onChange={e => setReturnNote(e.target.value)} placeholder="e.g. ₹500 deducted for damage" style={{ ...inputStyle, marginBottom: 18 }} />
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textAlign: "center" }}>Mode of Return</div>
+              <PaymentModeSelector mode={returnMode} setMode={setReturnMode} otherText={returnModeOther} setOtherText={setReturnModeOther} />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setReturnModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
+              <button onClick={async () => {
+                const row = returnModal;
+                const mode = returnMode === "Other" ? returnModeOther.trim() : returnMode;
+                const amt = Number(returnAmount) || 0;
+                setReturnModal(null);
+                await confirmReturn(row, amt, mode, returnNote.trim());
+              }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#1d4ed8", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>↩️ Confirm Return</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── ROOMS PAGE ────────────────────────────────────────────────
 function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, isManager = true }) {
   const [editingRoom, setEditingRoom] = useState(null);
@@ -1690,6 +2084,27 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                         />
                       </div>
                       {t.rentAmount && <div style={{ fontSize: 11, color: "#22c55e", marginTop: 4 }}>✅ Rent: ₹{Number(t.rentAmount).toLocaleString("en-IN")}/month</div>}
+                    </div>
+                    {/* Security Deposit Amount — separate from rent. Collecting/returning it
+                        is done from the Deposits tab, this just records the agreed amount. */}
+                    <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 10, marginTop: 2 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>🔒 SECURITY DEPOSIT AMOUNT</div>
+                      <div style={{ position: "relative" }}>
+                        <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#64748b", fontWeight: 700 }}>₹</span>
+                        <input
+                          type="number"
+                          placeholder="e.g. 3000"
+                          value={t.depositAmount || ""}
+                          onChange={e => updateTenant(i, "depositAmount", e.target.value)}
+                          style={{ ...inputStyle, paddingLeft: 26 }}
+                          min="0"
+                        />
+                      </div>
+                      {t.depositAmount && (
+                        <div style={{ fontSize: 11, marginTop: 4, color: t.depositReturnedOn ? "#64748b" : t.depositPaidOn ? "#1d4ed8" : "#b45309" }}>
+                          {t.depositReturnedOn ? `↩️ Returned ₹${Number(t.depositReturnAmount || t.depositAmount).toLocaleString("en-IN")}` : t.depositPaidOn ? "🔒 Deposit held — collect/return from Deposits tab" : "⏳ Not yet collected — collect from Deposits tab"}
+                        </div>
+                      )}
                     </div>
                     <input placeholder="Aadhar ID number" value={t.aadharId || ""} onChange={e => updateTenant(i, "aadharId", e.target.value)} style={{ ...inputStyle, letterSpacing: "1px" }} maxLength={12} />
                     {t.aadharId && t.aadharId.replace(/\D/g,"").length !== 12 && (
@@ -2378,6 +2793,7 @@ function App() {
       {page === "rooms" && <RoomsPage rooms={rooms} setRooms={setRooms} activeFloor={activeFloor} setActiveFloor={setActiveFloor} onSaveRoom={handleSaveRoom} isManager={isManager} />}
       {page === "search" && <TenantSearchPage rooms={rooms} setPage={setPage} setActiveFloor={setActiveFloor} isManager={isManager} />}
       {isManager && page === "rent" && <RentPage rooms={rooms} setRooms={setRooms} today={today} />}
+      {isManager && page === "deposits" && <DepositsPage rooms={rooms} setRooms={setRooms} today={today} />}
       {isAdmin && page === "history" && <HistoryPage />}
       {isAdmin && page === "users" && <UsersPage currentUser={user} />}
     </div>
