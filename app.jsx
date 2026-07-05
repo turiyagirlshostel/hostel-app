@@ -1986,9 +1986,12 @@ function DepositsPage({ rooms, setRooms, today }) {
   const tenants = getAllTenants(rooms);
   const term = depositSearch.trim().toLowerCase();
   const matchesTerm = name => term.length === 0 || (name || "").toLowerCase().includes(term);
+  const activeReceiptNos = new Set(tenants.map(t => t.depositReceiptNo).filter(Boolean));
 
   const pending = tenants.filter(t => Number(t.depositAmount) > 0 && !t.depositPaidOn && matchesTerm(t.name));
-  const held = (depositsLog || []).filter(d => !d.returned_at && matchesTerm(d.tenant_name));
+  const held = (depositsLog || []).filter(d => !d.returned_at && matchesTerm(d.tenant_name))
+    .map(d => ({ ...d, tenantHasLeft: !activeReceiptNos.has(d.receipt_no) }))
+    .sort((a, b) => (b.tenantHasLeft - a.tenantHasLeft) || (new Date(b.collected_at) - new Date(a.collected_at)));
   const returned = (depositsLog || []).filter(d => d.returned_at && matchesTerm(d.tenant_name));
 
   const totalHeld = held.reduce((s, d) => s + (Number(d.amount) || 0), 0);
@@ -2085,12 +2088,15 @@ function DepositsPage({ rooms, setRooms, today }) {
             {held.map(row => {
               const isBusy = busyKey === row.id;
               return (
-                <div key={row.id} style={{ background: "#fff", border: "1.5px solid #93c5fd", borderLeft: "4px solid #1d4ed8", borderRadius: 12, padding: "12px 14px" }}>
+                <div key={row.id} style={{ background: "#fff", border: "1.5px solid " + (row.tenantHasLeft ? "#fca5a5" : "#93c5fd"), borderLeft: "4px solid " + (row.tenantHasLeft ? "#dc2626" : "#1d4ed8"), borderRadius: 12, padding: "12px 14px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>{row.tenant_name}</div>
                       <div style={{ fontSize: 12, color: "#64748b" }}>Floor {row.floor} · Room {row.room_number}</div>
                       <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Collected {fmtDateIST(new Date(row.collected_at), { day: "2-digit", month: "short", year: "numeric" })} · {row.payment_mode}</div>
+                      {row.tenantHasLeft && (
+                        <div style={{ fontSize: 11, color: "#dc2626", fontWeight: 700, marginTop: 4 }}>⚠️ Tenant has checked out — deposit still owed</div>
+                      )}
                     </div>
                     <div style={{ fontSize: 18, fontWeight: 800, color: "#1d4ed8" }}>₹{Number(row.amount).toLocaleString("en-IN")}</div>
                   </div>
