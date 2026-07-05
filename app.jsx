@@ -1792,6 +1792,100 @@ function RentPage({ rooms, setRooms, today }) {
 // ── SECURITY DEPOSITS PAGE ──────────────────────────────────────
 // Completely independent of rent: sourced from its own `security_deposits`
 // table, so nothing here ever touches rent data or the Rent report.
+// ── SECURITY DEPOSIT REPORTS PANEL ───────────────────────────
+function DepositReportsPanel({ depositsLog, loading }) {
+  const [reportYear, setReportYear] = useState(new Date().getFullYear());
+
+  if (loading) {
+    return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8", marginBottom: 14 }}>Loading deposit history…</div>;
+  }
+  if (!depositsLog || depositsLog.length === 0) {
+    return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8", marginBottom: 14 }}>No deposits recorded yet.</div>;
+  }
+
+  const years = Array.from(new Set(depositsLog.map(d => new Date(d.collected_at).getFullYear()))).sort((a, b) => b - a);
+  if (!years.includes(reportYear)) reportYear = years[0];
+
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const monthly = monthNames.map((name, i) => {
+    const collected = depositsLog.filter(d => { const dt = new Date(d.collected_at); return dt.getFullYear() === reportYear && dt.getMonth() === i; });
+    const returned = depositsLog.filter(d => d.returned_at && (() => { const dt = new Date(d.returned_at); return dt.getFullYear() === reportYear && dt.getMonth() === i; })());
+    return {
+      name,
+      collectedTotal: collected.reduce((s, d) => s + Number(d.amount || 0), 0),
+      returnedTotal: returned.reduce((s, d) => s + Number(d.return_amount || 0), 0),
+      collectedCount: collected.length,
+      returnedCount: returned.length,
+    };
+  });
+  const yearCollected = monthly.reduce((s, m) => s + m.collectedTotal, 0);
+  const yearReturned = monthly.reduce((s, m) => s + m.returnedTotal, 0);
+  const maxVal = Math.max(1, ...monthly.map(m => Math.max(m.collectedTotal, m.returnedTotal)));
+
+  function exportCSV() {
+    const rows = depositsLog.filter(d => new Date(d.collected_at).getFullYear() === reportYear);
+    if (rows.length === 0) { alert(`No deposits in ${reportYear} to export.`); return; }
+    const headers = ["Tenant", "Floor", "Room", "Collected Date", "Amount Collected", "Collect Mode", "Returned Date", "Amount Returned", "Return Mode", "Receipt No"];
+    const data = rows.map(d => [
+      d.tenant_name, FLOOR_LABELS[d.floor] || `Floor ${d.floor}`, d.room_number,
+      fmtDateIST(new Date(d.collected_at)), d.amount || 0, d.payment_mode || "",
+      d.returned_at ? fmtDateIST(new Date(d.returned_at)) : "", d.return_amount || "", d.return_mode || "",
+      d.receipt_no || "",
+    ]);
+    const csv = [headers, ...data].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `hosteldesk-deposits-${reportYear}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div style={{ background: "#fff", borderRadius: 14, padding: 16, marginBottom: 14, boxShadow: "0 1px 4px #0001" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", gap: 20 }}>
+          <div>
+            <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>COLLECTED IN {reportYear}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#1d4ed8" }}>₹{yearCollected.toLocaleString("en-IN")}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>RETURNED IN {reportYear}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#475569" }}>₹{yearReturned.toLocaleString("en-IN")}</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={exportCSV} style={{ padding: "8px 14px", borderRadius: 8, border: "1.5px solid #86efac", background: "#f0fdf4", color: "#15803d", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>⬇️ Export CSV</button>
+          <select value={reportYear} onChange={e => setReportYear(Number(e.target.value))} style={{ padding: "8px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontWeight: 700, fontSize: 14 }}>
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 14, fontSize: 11, color: "#94a3b8", marginBottom: 8 }}>
+        <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#1d4ed8", marginRight: 4 }} />Collected</span>
+        <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#94a3b8", marginRight: 4 }} />Returned</span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {monthly.map(m => (
+          <div key={m.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#64748b" }}>{m.name}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ background: "#eff6ff", borderRadius: 4, height: 9, marginBottom: 2, overflow: "hidden" }}>
+                <div style={{ width: `${(m.collectedTotal / maxVal) * 100}%`, background: "#1d4ed8", height: "100%" }} />
+              </div>
+              <div style={{ background: "#f1f5f9", borderRadius: 4, height: 9, overflow: "hidden" }}>
+                <div style={{ width: `${(m.returnedTotal / maxVal) * 100}%`, background: "#94a3b8", height: "100%" }} />
+              </div>
+            </div>
+            <div style={{ width: 85, textAlign: "right", fontSize: 11.5, fontWeight: 700, color: "#1a2332" }}>₹{m.collectedTotal.toLocaleString("en-IN")}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DepositsPage({ rooms, setRooms, today }) {
   const [depositsLog, setDepositsLog] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1809,6 +1903,9 @@ function DepositsPage({ rooms, setRooms, today }) {
   const [returnMode, setReturnMode] = useState("Cash");
   const [returnModeOther, setReturnModeOther] = useState("");
   const [returnNote, setReturnNote] = useState("");
+  const [showDepositReports, setShowDepositReports] = useState(false);
+  const [showReturnHistory, setShowReturnHistory] = useState(false);
+  const [historySearch, setHistorySearch] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -1992,18 +2089,29 @@ function DepositsPage({ rooms, setRooms, today }) {
   const held = (depositsLog || []).filter(d => !d.returned_at && matchesTerm(d.tenant_name))
     .map(d => ({ ...d, tenantHasLeft: !activeReceiptNos.has(d.receipt_no) }))
     .sort((a, b) => (b.tenantHasLeft - a.tenantHasLeft) || (new Date(b.collected_at) - new Date(a.collected_at)));
-  const returned = (depositsLog || []).filter(d => d.returned_at && matchesTerm(d.tenant_name));
+  const allReturned = (depositsLog || []).filter(d => d.returned_at);
+  const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const returned = allReturned.filter(d => new Date(d.returned_at) >= thirtyDaysAgo && matchesTerm(d.tenant_name));
 
   const totalHeld = held.reduce((s, d) => s + (Number(d.amount) || 0), 0);
-  const totalReturned = returned.reduce((s, d) => s + (Number(d.return_amount) || 0), 0);
+  const totalReturned = allReturned.reduce((s, d) => s + (Number(d.return_amount) || 0), 0);
   const totalEverCollected = (depositsLog || []).reduce((s, d) => s + (Number(d.amount) || 0), 0);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "16px 12px 90px" }}>
-      <div style={{ marginBottom: 14 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 3px" }}>🔒 Security Deposits</h1>
-        <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>Separate from rent — tracked and reported independently</p>
+      <div style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 3px" }}>🔒 Security Deposits</h1>
+          <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>Separate from rent — tracked and reported independently</p>
+        </div>
+        <button onClick={() => setShowDepositReports(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showDepositReports ? "#1a2332" : "#e2e8f0"), background: showDepositReports ? "#1a2332" : "#fff", color: showDepositReports ? "#fff" : "#475569", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+          📊 Reports
+        </button>
       </div>
+
+      {showDepositReports && (
+        <DepositReportsPanel depositsLog={depositsLog} loading={loading} />
+      )}
 
       {/* Money bar */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
@@ -2113,8 +2221,13 @@ function DepositsPage({ rooms, setRooms, today }) {
       )}
 
       {!loading && filter === "returned" && (
-        returned.length === 0 ? (
-          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8" }}>{term ? `No returned deposits match "${depositSearch}".` : "No returned deposits yet."}</div>
+        <>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ fontSize: 11.5, color: "#94a3b8" }}>Showing returns from the last 30 days</div>
+          <button onClick={() => setShowReturnHistory(true)} style={{ padding: "6px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", color: "#475569", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>📜 Full History</button>
+        </div>
+        {returned.length === 0 ? (
+          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8" }}>{term ? `No returned deposits match "${depositSearch}" in the last 30 days.` : "No deposits returned in the last 30 days. Older returns are still saved — check Full History."}</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {returned.map(row => (
@@ -2133,7 +2246,8 @@ function DepositsPage({ rooms, setRooms, today }) {
               </div>
             ))}
           </div>
-        )
+        )}
+        </>
       )}
 
       {/* Collect confirmation modal */}
@@ -2238,6 +2352,46 @@ function DepositsPage({ rooms, setRooms, today }) {
           </div>
         </div>
       )}
+
+      {/* Full return history — unfiltered by the 30-day window, search + reprint any receipt ever */}
+      {showReturnHistory && (() => {
+        const q = historySearch.trim().toLowerCase();
+        const rows = allReturned
+          .filter(d => q.length === 0 || (d.tenant_name || "").toLowerCase().includes(q))
+          .sort((a, b) => new Date(b.returned_at) - new Date(a.returned_at));
+        return (
+          <div onClick={() => setShowReturnHistory(false)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 16 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 20, width: "100%", maxWidth: 480, maxHeight: "85vh", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div style={{ fontWeight: 800, fontSize: 18 }}>📜 Full Return History</div>
+                <button onClick={() => setShowReturnHistory(false)} style={{ background: "#f1f5f9", border: "none", borderRadius: "50%", width: 28, height: 28, cursor: "pointer", fontSize: 14 }}>✕</button>
+              </div>
+              <input
+                placeholder="Search by tenant name…"
+                value={historySearch}
+                onChange={e => setHistorySearch(e.target.value)}
+                style={{ padding: "9px 12px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 14, marginBottom: 12, boxSizing: "border-box" }}
+              />
+              <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                {rows.length === 0 ? (
+                  <div style={{ textAlign: "center", color: "#94a3b8", padding: 20 }}>No returned deposits {q ? `match "${historySearch}"` : "yet"}.</div>
+                ) : rows.map(row => (
+                  <div key={row.id} style={{ background: "#f8fafc", borderRadius: 10, padding: "10px 12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>{row.tenant_name}</div>
+                        <div style={{ fontSize: 11, color: "#94a3b8" }}>Floor {row.floor} · Room {row.room_number} · Returned {fmtDateIST(new Date(row.returned_at), { day: "2-digit", month: "short", year: "numeric" })}</div>
+                      </div>
+                      <div style={{ fontWeight: 800, fontSize: 14, color: "#475569" }}>₹{Number(row.return_amount).toLocaleString("en-IN")}</div>
+                    </div>
+                    <button onClick={() => reprintReturned(row)} style={{ width: "100%", marginTop: 8, padding: "7px 0", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Download Receipt</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
