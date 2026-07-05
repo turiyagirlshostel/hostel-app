@@ -487,15 +487,16 @@ function getRentStatus(admissionDate, today) {
   if (diff === 0) return { type: "due_today", label: "Due Today", color: "#ef4444", bg: "#fef2f2", icon: "🔴", daysUntil: 0, dueDay };
   if (diff > 0 && diff <= 3) return { type: "due_soon", label: `Due in ${diff} day${diff>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil: diff, dueDay };
   if (diff < 0) {
-    // This month's due day has passed — check how close next month's
-    // (also clamped) due day is.
-    let nextMonth = today.getMonth() + 1, nextYear = today.getFullYear();
-    if (nextMonth > 11) { nextMonth = 0; nextYear += 1; }
-    const daysInNextMonth = new Date(nextYear, nextMonth + 1, 0).getDate();
-    const dueDayNextMonth = Math.min(dueDay, daysInNextMonth);
-    const daysLeft = daysInThisMonth - todayDay + dueDayNextMonth;
-    if (daysLeft <= 3) return { type: "due_soon", label: `Due in ${daysLeft} day${daysLeft>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil: daysLeft, dueDay };
-    return { type: "ok", label: `Due on ${ordinal(dueDay)}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil: daysLeft, dueDay };
+    // This month's due day has already passed with no payment — they're
+    // overdue, full stop. (Whether they've actually paid is checked
+    // separately via isActiveForCycle; this function only reaches here at
+    // all for tenants who haven't, since paid tenants get filtered out
+    // before rentStatus.type is used for display.) Count exact days overdue
+    // from the real cycle start, so it stays correct even across a month
+    // boundary, instead of quietly resetting to "counting down to next month".
+    const cycleStart = getCycleStart(dueDay, today);
+    const daysOverdue = Math.max(1, Math.round((today - cycleStart) / (24*60*60*1000)));
+    return { type: "overdue", label: `${daysOverdue} day${daysOverdue !== 1 ? "s" : ""} overdue`, color: "#b91c1c", bg: "#fef2f2", icon: "🔴", daysOverdue, dueDay };
   }
   return { type: "ok", label: `Due on ${ordinal(dueDay)}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil: diff, dueDay };
 }
@@ -541,8 +542,12 @@ function getRentStatus15(admissionDate, today) {
   const nextDue = new Date(cycleStart.getTime() + 15 * MS_PER_DAY);
   const daysUntil = Math.round((nextDue - today) / MS_PER_DAY);
   const dueLabel = fmtDateIST(nextDue, { day: "numeric", month: "short" });
-  if (daysUntil <= 0) return { type: "due_today", label: "Due Today", color: "#ef4444", bg: "#fef2f2", icon: "🔴", daysUntil: 0, cycleStart, nextDue };
-  if (daysUntil <= 3) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil, cycleStart, nextDue };
+  if (daysUntil === 0) return { type: "due_today", label: "Due Today", color: "#ef4444", bg: "#fef2f2", icon: "🔴", daysUntil: 0, cycleStart, nextDue };
+  if (daysUntil > 0 && daysUntil <= 3) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil, cycleStart, nextDue };
+  if (daysUntil < 0) {
+    const daysOverdue = -daysUntil;
+    return { type: "overdue", label: `${daysOverdue} day${daysOverdue !== 1 ? "s" : ""} overdue`, color: "#b91c1c", bg: "#fef2f2", icon: "🔴", daysOverdue, cycleStart, nextDue };
+  }
   return { type: "ok", label: `Due on ${dueLabel}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil, cycleStart, nextDue };
 }
 
@@ -716,6 +721,14 @@ function DonutChart({ pct, color, size = 90 }) {
 
 // ── HOME PAGE ─────────────────────────────────────────────────
 function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
+  const [trendPayments, setTrendPayments] = useState(null);
+  const [trendDeposits, setTrendDeposits] = useState(null);
+  useEffect(() => {
+    if (!isManager) return;
+    loadPayments().then(setTrendPayments).catch(() => setTrendPayments([]));
+    loadDeposits().then(setTrendDeposits).catch(() => setTrendDeposits([]));
+  }, [isManager]);
+
   const all = Object.values(rooms);
   const totalBeds = all.reduce((s, r) => s + r.beds, 0);
   const totalOcc = all.reduce((s, r) => s + getOccupied(r), 0);
@@ -738,13 +751,51 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
 
   const barColors = ["#3b82f6", "#8b5cf6", "#f59e0b", "#10b981", "#ec4899"];
 
-  // Rent alerts for home
+  // Rent alerts for home — only UNPAID tenants should ever trigger an alert,
+  // and both Monthly and 15-Day billing types need checking (Daily has no cycle).
   const tenants = getAllTenants(rooms);
-  const dueToday = tenants.filter(t => { const s = getRentStatus(t.admissionDate, today); return s && s.type === "due_today"; });
-  const dueSoon = tenants.filter(t => { const s = getRentStatus(t.admissionDate, today); return s && s.type === "due_soon"; });
+  const cyclicHome = tenants.filter(t => (t.billingType || "monthly") !== "daily" && t.admissionDate);
+  const homeCategorized = cyclicHome.map(t => {
+    const is15 = t.billingType === "15day";
+    const rentStatus = is15 ? getRentStatus15(t.admissionDate, today) : getRentStatus(t.admissionDate, today);
+    if (!rentStatus) return null;
+    const isPaid = is15
+      ? isActiveForCycle15(t.rentPaidOn, rentStatus.cycleStart)
+      : isActiveForCycle(t.rentPaidOn, rentStatus.dueDay, today);
+    const isSnoozed = !isPaid && (is15
+      ? isActiveForCycle15(t.rentSnoozedAt, rentStatus.cycleStart)
+      : isActiveForCycle(t.rentSnoozedAt, rentStatus.dueDay, today));
+    return { ...t, rentStatus, isPaid, isSnoozed };
+  }).filter(Boolean).filter(t => !t.isPaid && !t.isSnoozed);
+  const overdue = homeCategorized.filter(t => t.rentStatus.type === "overdue").sort((a,b) => (b.rentStatus.daysOverdue||0) - (a.rentStatus.daysOverdue||0));
+  const dueToday = homeCategorized.filter(t => t.rentStatus.type === "due_today");
+  const dueSoon = homeCategorized.filter(t => t.rentStatus.type === "due_soon");
 
   // Recent tenants
   const recentTenants = [...tenants].sort((a,b) => (b.admissionDate||"").localeCompare(a.admissionDate||"")).slice(0, 6);
+
+  // This month vs last month — real trend data, backed by actual timestamped
+  // records (payments/deposits ledgers). Occupancy has no historical snapshot
+  // stored anywhere, so it's intentionally not included here as a "trend" —
+  // only things we actually have dated history for.
+  const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const inRange = (dateStr, start, end) => { const d = new Date(dateStr); return d >= start && d < end; };
+
+  const rentThisMonth = (trendPayments || []).filter(p => inRange(p.paid_at, thisMonthStart, new Date(today.getFullYear(), today.getMonth()+1, 1)));
+  const rentLastMonth = (trendPayments || []).filter(p => inRange(p.paid_at, lastMonthStart, thisMonthStart));
+  const rentThisTotal = rentThisMonth.reduce((s,p) => s + Number(p.amount||0), 0);
+  const rentLastTotal = rentLastMonth.reduce((s,p) => s + Number(p.amount||0), 0);
+  const rentChangePct = rentLastTotal > 0 ? Math.round(((rentThisTotal - rentLastTotal) / rentLastTotal) * 100) : (rentThisTotal > 0 ? 100 : 0);
+
+  const depositsThisMonth = (trendDeposits || []).filter(d => inRange(d.collected_at, thisMonthStart, new Date(today.getFullYear(), today.getMonth()+1, 1)));
+  const depositsLastMonth = (trendDeposits || []).filter(d => inRange(d.collected_at, lastMonthStart, thisMonthStart));
+  const depositsThisTotal = depositsThisMonth.reduce((s,d) => s + Number(d.amount||0), 0);
+  const depositsLastTotal = depositsLastMonth.reduce((s,d) => s + Number(d.amount||0), 0);
+  const depositsHeldNow = (trendDeposits || []).filter(d => !d.returned_at).reduce((s,d) => s + Number(d.amount||0), 0);
+
+  const newTenantsThisMonth = [...tenants].filter(t => t.admissionDate && inRange(t.admissionDate + "T00:00:00", thisMonthStart, new Date(today.getFullYear(), today.getMonth()+1, 1))).length;
+  const newTenantsLastMonth = [...tenants].filter(t => t.admissionDate && inRange(t.admissionDate + "T00:00:00", lastMonthStart, thisMonthStart)).length;
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 12px 90px" }}>
@@ -754,8 +805,17 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
       </div>
 
       {/* Rent alerts banner (managers/admins only) */}
-      {isManager && (dueToday.length > 0 || dueSoon.length > 0) && (
+      {isManager && (overdue.length > 0 || dueToday.length > 0 || dueSoon.length > 0) && (
         <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+          {overdue.length > 0 && (
+            <div onClick={() => setPage("rent")} style={{ background: "#fef2f2", border: "1.5px solid #b91c1c", borderRadius: 12, padding: "12px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 20 }}>🔴</span>
+              <div style={{ flex: 1 }}>
+                <b style={{ color: "#b91c1c" }}>Rent OVERDUE</b> — {overdue.length} tenant{overdue.length > 1 ? "s" : ""}: {overdue.slice(0,3).map(t => `${t.name} (${t.rentStatus.daysOverdue}d)`).join(", ")}{overdue.length > 3 ? ` +${overdue.length-3} more` : ""}
+              </div>
+              <span style={{ fontSize: 12, color: "#b91c1c", fontWeight: 600 }}>View →</span>
+            </div>
+          )}
           {dueToday.length > 0 && (
             <div onClick={() => setPage("rent")} style={{ background: "#fef2f2", border: "1.5px solid #fca5a5", borderRadius: 12, padding: "12px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 20 }}>🔴</span>
@@ -772,6 +832,42 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
                 <b style={{ color: "#d97706" }}>Rent due soon</b> — {dueSoon.length} tenant{dueSoon.length > 1 ? "s" : ""} in the next 3 days
               </div>
               <span style={{ fontSize: 12, color: "#d97706", fontWeight: 600 }}>View →</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* This Month vs Last Month trend */}
+      {isManager && (
+        <div style={{ background: "#fff", borderRadius: 14, padding: 16, marginBottom: 18, boxShadow: "0 1px 4px #0001" }}>
+          <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 2 }}>📈 This Month vs Last Month</div>
+          <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 14 }}>{today.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</div>
+          {trendPayments === null || trendDeposits === null ? (
+            <div style={{ textAlign: "center", color: "#94a3b8", padding: 10, fontSize: 13 }}>Loading trend data…</div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>RENT COLLECTED</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#1a2332" }}>₹{rentThisTotal.toLocaleString("en-IN")}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: rentChangePct >= 0 ? "#15803d" : "#dc2626" }}>
+                  {rentChangePct >= 0 ? "▲" : "▼"} {Math.abs(rentChangePct)}% <span style={{ color: "#94a3b8", fontWeight: 500 }}>vs ₹{rentLastTotal.toLocaleString("en-IN")} last month</span>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>DEPOSITS COLLECTED</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#1a2332" }}>₹{depositsThisTotal.toLocaleString("en-IN")}</div>
+                <div style={{ fontSize: 12, color: "#94a3b8" }}>vs ₹{depositsLastTotal.toLocaleString("en-IN")} last month</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>DEPOSITS CURRENTLY HELD</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#1a2332" }}>₹{depositsHeldNow.toLocaleString("en-IN")}</div>
+                <div style={{ fontSize: 12, color: "#94a3b8" }}>live snapshot, not a monthly trend</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>NEW TENANTS</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#1a2332" }}>{newTenantsThisMonth}</div>
+                <div style={{ fontSize: 12, color: "#94a3b8" }}>vs {newTenantsLastMonth} last month</div>
+              </div>
             </div>
           )}
         </div>
@@ -1412,6 +1508,7 @@ function RentPage({ rooms, setRooms, today }) {
     return { ...t, rentStatus, isPaid, isSnoozed, is15 };
   });
   const allDue = categorized.filter(t => !t.isPaid && !t.isSnoozed);
+  const overdue = allDue.filter(t => t.rentStatus.type === "overdue").sort((a, b) => (b.rentStatus.daysOverdue||0) - (a.rentStatus.daysOverdue||0));
   const dueToday = allDue.filter(t => t.rentStatus.type === "due_today");
   const dueSoon = allDue.filter(t => t.rentStatus.type === "due_soon");
   const ok = allDue.filter(t => t.rentStatus.type === "ok");
@@ -1419,7 +1516,8 @@ function RentPage({ rooms, setRooms, today }) {
   const snoozedList = categorized.filter(t => t.isSnoozed);
 
   let shown = [];
-  if (filter === "all") shown = [...dueToday, ...dueSoon, ...ok];
+  if (filter === "all") shown = [...overdue, ...dueToday, ...dueSoon, ...ok];
+  else if (filter === "overdue") shown = overdue;
   else if (filter === "due_today") shown = dueToday;
   else if (filter === "due_soon") shown = dueSoon;
   else if (filter === "ok") shown = ok;
@@ -1492,6 +1590,7 @@ function RentPage({ rooms, setRooms, today }) {
       {/* Summary cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 8, marginBottom: 14 }}>
         {[
+          { label: "Overdue", value: overdue.length, color: "#b91c1c", bg: "#fef2f2", icon: "🔴", id: "overdue" },
           { label: "Due Today", value: dueToday.length, color: "#ef4444", bg: "#fef2f2", icon: "🔴", id: "due_today" },
           { label: "Due Soon", value: dueSoon.length, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", id: "due_soon" },
           { label: "Upcoming", value: ok.length, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", id: "ok" },
@@ -3372,8 +3471,13 @@ function App() {
   };
   const tenants = getAllTenants(rooms);
   const rentAlerts = tenants.filter(t => {
-    const rs = getRentStatus(t.admissionDate, today);
-    return rs && (rs.type === "due_today" || rs.type === "due_soon");
+    if ((t.billingType || "monthly") === "daily" || !t.admissionDate) return false;
+    const is15 = t.billingType === "15day";
+    const rs = is15 ? getRentStatus15(t.admissionDate, today) : getRentStatus(t.admissionDate, today);
+    if (!rs || !(rs.type === "due_today" || rs.type === "due_soon" || rs.type === "overdue")) return false;
+    const isPaid = is15 ? isActiveForCycle15(t.rentPaidOn, rs.cycleStart) : isActiveForCycle(t.rentPaidOn, rs.dueDay, today);
+    const isSnoozed = !isPaid && (is15 ? isActiveForCycle15(t.rentSnoozedAt, rs.cycleStart) : isActiveForCycle(t.rentSnoozedAt, rs.dueDay, today));
+    return !isPaid && !isSnoozed;
   }).length;
 
   const role = userRole?.role;
