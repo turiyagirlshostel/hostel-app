@@ -2129,11 +2129,11 @@ function DepositsPage({ rooms, setRooms, today }) {
 
   const tenants = getAllTenants(rooms);
   const term = depositSearch.trim().toLowerCase();
-  const matchesTerm = name => term.length === 0 || (name || "").toLowerCase().includes(term);
+  const matchesTerm = (name, phone) => term.length === 0 || (name || "").toLowerCase().includes(term) || (phone || "").includes(depositSearch.trim());
   const activeReceiptNos = new Set(tenants.map(t => t.depositReceiptNo).filter(Boolean));
 
-  const pending = tenants.filter(t => Number(t.depositAmount) > 0 && !t.depositPaidOn && matchesTerm(t.name));
-  const held = (depositsLog || []).filter(d => !d.returned_at && matchesTerm(d.tenant_name))
+  const pending = tenants.filter(t => Number(t.depositAmount) > 0 && !t.depositPaidOn && matchesTerm(t.name, t.phone));
+  const held = (depositsLog || []).filter(d => !d.returned_at && matchesTerm(d.tenant_name, d.phone))
     .map(d => ({ ...d, tenantHasLeft: !activeReceiptNos.has(d.receipt_no) }))
     .sort((a, b) => (b.tenantHasLeft - a.tenantHasLeft) || (new Date(b.collected_at) - new Date(a.collected_at)));
   const allReturned = (depositsLog || []).filter(d => d.returned_at);
@@ -2141,7 +2141,7 @@ function DepositsPage({ rooms, setRooms, today }) {
   // If actively searching, show every match regardless of age — the 30-day
   // window is just a default declutter, not a real limit on what's findable.
   const returned = term.length > 0
-    ? allReturned.filter(d => matchesTerm(d.tenant_name)).sort((a, b) => new Date(b.returned_at) - new Date(a.returned_at))
+    ? allReturned.filter(d => matchesTerm(d.tenant_name, d.phone)).sort((a, b) => new Date(b.returned_at) - new Date(a.returned_at))
     : allReturned.filter(d => new Date(d.returned_at) >= thirtyDaysAgo);
 
   const totalHeld = held.reduce((s, d) => s + (Number(d.amount) || 0), 0);
@@ -2155,9 +2155,14 @@ function DepositsPage({ rooms, setRooms, today }) {
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 3px" }}>🔒 Security Deposits</h1>
           <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>Separate from rent — tracked and reported independently</p>
         </div>
-        <button onClick={() => setShowDepositReports(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showDepositReports ? "#1a2332" : "#e2e8f0"), background: showDepositReports ? "#1a2332" : "#fff", color: showDepositReports ? "#fff" : "#475569", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
-          📊 Reports
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setShowReturnHistory(true)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#475569", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+            📜 Full History
+          </button>
+          <button onClick={() => setShowDepositReports(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showDepositReports ? "#1a2332" : "#e2e8f0"), background: showDepositReports ? "#1a2332" : "#fff", color: showDepositReports ? "#fff" : "#475569", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+            📊 Reports
+          </button>
+        </div>
       </div>
 
       {showDepositReports && (
@@ -2188,7 +2193,7 @@ function DepositsPage({ rooms, setRooms, today }) {
         <input
           value={depositSearch}
           onChange={e => setDepositSearch(e.target.value)}
-          placeholder="Search by tenant name…"
+          placeholder="Search by name or phone…"
           style={{ ...inputStyle, paddingLeft: 40, fontSize: 14, padding: "10px 14px 10px 40px", borderRadius: 10, border: "1.5px solid #e2e8f0", boxSizing: "border-box" }}
         />
         {depositSearch && (
@@ -2273,10 +2278,7 @@ function DepositsPage({ rooms, setRooms, today }) {
 
       {!loading && filter === "returned" && (
         <>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div style={{ fontSize: 11.5, color: "#94a3b8" }}>Showing returns from the last 30 days</div>
-          <button onClick={() => setShowReturnHistory(true)} style={{ padding: "6px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#fff", color: "#475569", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>📜 Full History</button>
-        </div>
+        <div style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 10 }}>Showing returns from the last 30 days — search above to find any past return, or use "Full History" at the top</div>
         {returned.length === 0 ? (
           <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8" }}>{term ? `No returned deposits match "${depositSearch}" in the last 30 days.` : "No deposits returned in the last 30 days. Older returns are still saved — check Full History."}</div>
         ) : (
@@ -2408,7 +2410,7 @@ function DepositsPage({ rooms, setRooms, today }) {
       {showReturnHistory && (() => {
         const q = historySearch.trim().toLowerCase();
         const rows = allReturned
-          .filter(d => q.length === 0 || (d.tenant_name || "").toLowerCase().includes(q))
+          .filter(d => q.length === 0 || (d.tenant_name || "").toLowerCase().includes(q) || (d.phone || "").includes(historySearch.trim()))
           .sort((a, b) => new Date(b.returned_at) - new Date(a.returned_at));
         return (
           <div onClick={() => setShowReturnHistory(false)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 16 }}>
@@ -2418,7 +2420,7 @@ function DepositsPage({ rooms, setRooms, today }) {
                 <button onClick={() => setShowReturnHistory(false)} style={{ background: "#f1f5f9", border: "none", borderRadius: "50%", width: 28, height: 28, cursor: "pointer", fontSize: 14 }}>✕</button>
               </div>
               <input
-                placeholder="Search by tenant name…"
+                placeholder="Search by name or phone…"
                 value={historySearch}
                 onChange={e => setHistorySearch(e.target.value)}
                 style={{ padding: "9px 12px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 14, marginBottom: 12, boxSizing: "border-box" }}
