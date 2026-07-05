@@ -1795,6 +1795,7 @@ function RentPage({ rooms, setRooms, today }) {
 // ── SECURITY DEPOSIT REPORTS PANEL ───────────────────────────
 function DepositReportsPanel({ depositsLog, loading }) {
   const [reportYear, setReportYear] = useState(new Date().getFullYear());
+  const [expandedMonth, setExpandedMonth] = useState(null);
 
   if (loading) {
     return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#94a3b8", marginBottom: 14 }}>Loading deposit history…</div>;
@@ -1810,8 +1811,14 @@ function DepositReportsPanel({ depositsLog, loading }) {
   const monthly = monthNames.map((name, i) => {
     const collected = depositsLog.filter(d => { const dt = new Date(d.collected_at); return dt.getFullYear() === reportYear && dt.getMonth() === i; });
     const returned = depositsLog.filter(d => d.returned_at && (() => { const dt = new Date(d.returned_at); return dt.getFullYear() === reportYear && dt.getMonth() === i; })());
+    // Build a combined, chronological transaction list for this month (each
+    // collect and each return is its own line, even if same deposit record)
+    const transactions = [
+      ...collected.map(d => ({ ...d, txType: "collected", txDate: d.collected_at, txAmount: d.amount })),
+      ...returned.map(d => ({ ...d, txType: "returned", txDate: d.returned_at, txAmount: d.return_amount })),
+    ].sort((a, b) => new Date(b.txDate) - new Date(a.txDate));
     return {
-      name,
+      name, monthIndex: i, transactions,
       collectedTotal: collected.reduce((s, d) => s + Number(d.amount || 0), 0),
       returnedTotal: returned.reduce((s, d) => s + Number(d.return_amount || 0), 0),
       collectedCount: collected.length,
@@ -1821,6 +1828,22 @@ function DepositReportsPanel({ depositsLog, loading }) {
   const yearCollected = monthly.reduce((s, m) => s + m.collectedTotal, 0);
   const yearReturned = monthly.reduce((s, m) => s + m.returnedTotal, 0);
   const maxVal = Math.max(1, ...monthly.map(m => Math.max(m.collectedTotal, m.returnedTotal)));
+
+  function reprintTx(tx) {
+    if (tx.txType === "collected") {
+      generateReceiptPDF({
+        name: tx.tenant_name, phone: tx.phone, floorLabel: FLOOR_LABELS[tx.floor] || "Floor " + tx.floor,
+        roomNumber: tx.room_number, paidDate: new Date(tx.collected_at), amount: tx.amount, mode: tx.payment_mode,
+        receiptNo: tx.receipt_no, cycleNote: "Security Deposit", docTitle: "Security Deposit Receipt", amountLabel: "DEPOSIT COLLECTED", fileTag: "deposit",
+      });
+    } else {
+      generateReceiptPDF({
+        name: tx.tenant_name, phone: tx.phone, floorLabel: FLOOR_LABELS[tx.floor] || "Floor " + tx.floor,
+        roomNumber: tx.room_number, paidDate: new Date(tx.returned_at), amount: tx.return_amount, mode: tx.return_mode,
+        receiptNo: tx.return_receipt_no, cycleNote: tx.return_note || "Security Deposit Return", docTitle: "Deposit Return Receipt", amountLabel: "AMOUNT RETURNED", fileTag: "deposit_return",
+      });
+    }
+  }
 
   function exportCSV() {
     const rows = depositsLog.filter(d => new Date(d.collected_at).getFullYear() === reportYear);
@@ -1868,17 +1891,41 @@ function DepositReportsPanel({ depositsLog, loading }) {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {monthly.map(m => (
-          <div key={m.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#64748b" }}>{m.name}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ background: "#eff6ff", borderRadius: 4, height: 9, marginBottom: 2, overflow: "hidden" }}>
-                <div style={{ width: `${(m.collectedTotal / maxVal) * 100}%`, background: "#1d4ed8", height: "100%" }} />
+          <div key={m.name}>
+            <div onClick={() => m.transactions.length > 0 && setExpandedMonth(x => x === m.monthIndex ? null : m.monthIndex)}
+              style={{ display: "flex", alignItems: "center", gap: 10, cursor: m.transactions.length > 0 ? "pointer" : "default", padding: "4px 6px", borderRadius: 8, background: expandedMonth === m.monthIndex ? "#f8fafc" : "transparent" }}>
+              <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#64748b" }}>{m.name}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ background: "#eff6ff", borderRadius: 4, height: 9, marginBottom: 2, overflow: "hidden" }}>
+                  <div style={{ width: `${(m.collectedTotal / maxVal) * 100}%`, background: "#1d4ed8", height: "100%" }} />
+                </div>
+                <div style={{ background: "#f1f5f9", borderRadius: 4, height: 9, overflow: "hidden" }}>
+                  <div style={{ width: `${(m.returnedTotal / maxVal) * 100}%`, background: "#94a3b8", height: "100%" }} />
+                </div>
               </div>
-              <div style={{ background: "#f1f5f9", borderRadius: 4, height: 9, overflow: "hidden" }}>
-                <div style={{ width: `${(m.returnedTotal / maxVal) * 100}%`, background: "#94a3b8", height: "100%" }} />
-              </div>
+              <div style={{ width: 85, textAlign: "right", fontSize: 11.5, fontWeight: 700, color: "#1a2332" }}>₹{m.collectedTotal.toLocaleString("en-IN")}</div>
+              <div style={{ width: 14, textAlign: "center", fontSize: 10, color: "#94a3b8" }}>{m.transactions.length > 0 ? (expandedMonth === m.monthIndex ? "▲" : "▼") : ""}</div>
             </div>
-            <div style={{ width: 85, textAlign: "right", fontSize: 11.5, fontWeight: 700, color: "#1a2332" }}>₹{m.collectedTotal.toLocaleString("en-IN")}</div>
+            {expandedMonth === m.monthIndex && (
+              <div style={{ margin: "6px 4px 10px", background: "#f8fafc", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                {m.transactions.map((tx, idx) => (
+                  <div key={tx.id + "-" + tx.txType + "-" + idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 8, padding: "8px 10px", boxShadow: "0 1px 2px #0001" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2332" }}>
+                        {tx.tenant_name} <span style={{ fontSize: 10, fontWeight: 700, color: tx.txType === "collected" ? "#1d4ed8" : "#64748b", background: tx.txType === "collected" ? "#eff6ff" : "#f1f5f9", padding: "1px 6px", borderRadius: 99, marginLeft: 4 }}>{tx.txType === "collected" ? "Collected" : "Returned"}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#94a3b8" }}>
+                        {FLOOR_LABELS[tx.floor] || "Floor " + tx.floor} · Room {tx.room_number} · {fmtDateIST(new Date(tx.txDate), { day: "numeric", month: "short" })} · {tx.txType === "collected" ? tx.payment_mode : tx.return_mode}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: tx.txType === "collected" ? "#1d4ed8" : "#475569" }}>₹{Number(tx.txAmount || 0).toLocaleString("en-IN")}</div>
+                      <button onClick={() => reprintTx(tx)} style={{ padding: "5px 10px", borderRadius: 7, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>🧾</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -2091,7 +2138,11 @@ function DepositsPage({ rooms, setRooms, today }) {
     .sort((a, b) => (b.tenantHasLeft - a.tenantHasLeft) || (new Date(b.collected_at) - new Date(a.collected_at)));
   const allReturned = (depositsLog || []).filter(d => d.returned_at);
   const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const returned = allReturned.filter(d => new Date(d.returned_at) >= thirtyDaysAgo && matchesTerm(d.tenant_name));
+  // If actively searching, show every match regardless of age — the 30-day
+  // window is just a default declutter, not a real limit on what's findable.
+  const returned = term.length > 0
+    ? allReturned.filter(d => matchesTerm(d.tenant_name)).sort((a, b) => new Date(b.returned_at) - new Date(a.returned_at))
+    : allReturned.filter(d => new Date(d.returned_at) >= thirtyDaysAgo);
 
   const totalHeld = held.reduce((s, d) => s + (Number(d.amount) || 0), 0);
   const totalReturned = allReturned.reduce((s, d) => s + (Number(d.return_amount) || 0), 0);
