@@ -1837,9 +1837,14 @@ function RentPage({ rooms, setRooms, today }) {
                         </>
                       )}
                       {isSnoozed && (
-                        <button disabled={isBusy} onClick={() => setUnsnoozeConfirm(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
-                          Unsnooze
-                        </button>
+                        <>
+                          <button disabled={isBusy} onClick={() => { setPaymentMode("Cash"); setPaymentModeOther(""); setPaymentNote(""); setPaidModal(t); }} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "#22c55e", color: "#fff", fontWeight: 800, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                            ✅ Mark Paid
+                          </button>
+                          <button disabled={isBusy} onClick={() => setUnsnoozeConfirm(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                            Unsnooze
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
