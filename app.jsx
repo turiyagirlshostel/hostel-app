@@ -197,12 +197,15 @@ async function loadAllRooms() {
         rentPaymentMode: t.rent_payment_mode || "",
         rentReceiptNo: t.rent_receipt_no || "",
         rentSnoozedAt: t.rent_snoozed_at || "",
+        rentSnoozedUntil: t.rent_snoozed_until || "",
+        rentNote: t.rent_note || "",
         depositAmount: t.deposit_amount || "",
         depositPaidOn: t.deposit_paid_on || "",
         depositPaymentMode: t.deposit_payment_mode || "",
         depositReceiptNo: t.deposit_receipt_no || "",
         depositReturnedOn: t.deposit_returned_on || "",
         depositReturnAmount: t.deposit_return_amount || "",
+        depositNote: t.deposit_note || "",
         dbId: t.id,
       };
     }
@@ -315,12 +318,15 @@ async function saveRoom(room, tenants) {
       rent_payment_mode: t.rentPaymentMode || null,
       rent_receipt_no: t.rentReceiptNo || null,
       rent_snoozed_at: t.rentSnoozedAt || null,
+      rent_snoozed_until: t.rentSnoozedUntil || null,
+      rent_note: t.rentNote || null,
       deposit_amount: t.depositAmount || null,
       deposit_paid_on: t.depositPaidOn || null,
       deposit_payment_mode: t.depositPaymentMode || null,
       deposit_receipt_no: t.depositReceiptNo || null,
       deposit_returned_on: t.depositReturnedOn || null,
       deposit_return_amount: t.depositReturnAmount || null,
+      deposit_note: t.depositNote || null,
     }))
     .filter(t => t.name.trim() !== "");
   if (toInsert.length > 0) {
@@ -364,6 +370,7 @@ async function archiveTenants(oldTenants, roomId, floor, roomNumber) {
       deposit_receipt_no: t.depositReceiptNo || null,
       deposit_returned_on: t.depositReturnedOn || null,
       deposit_return_amount: t.depositReturnAmount || null,
+      deposit_note: t.depositNote || null,
       archived_at: new Date().toISOString(),
     }));
   if (toArchive.length === 0) return;
@@ -380,7 +387,7 @@ const ROOM_COUNTS = { 0: 3, 1: 40, 2: 40, 3: 40, 4: 4 };
 const FLOOR_LABELS = { 0: "Ground", 1: "Floor 1", 2: "Floor 2", 3: "Floor 3", 4: "Floor 4" };
 
 function makeBeds(count, existing = []) {
-  return Array.from({ length: count }, (_, i) => existing[i] || { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "", rentPaidOn: "", rentSnoozedAt: "", rentPaymentMode: "", rentReceiptNo: "", depositAmount: "", depositPaidOn: "", depositPaymentMode: "", depositReceiptNo: "", depositReturnedOn: "", depositReturnAmount: "" });
+  return Array.from({ length: count }, (_, i) => existing[i] || { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "", rentPaidOn: "", rentSnoozedAt: "", rentSnoozedUntil: "", rentPaymentMode: "", rentReceiptNo: "", rentNote: "", depositAmount: "", depositPaidOn: "", depositPaymentMode: "", depositReceiptNo: "", depositReturnedOn: "", depositReturnAmount: "", depositNote: "" });
 }
 
 function initRooms() {
@@ -473,7 +480,7 @@ function getAllTenants(rooms) {
 }
 
 // Rent due logic
-function getRentStatus(admissionDate, today) {
+function getRentStatus(admissionDate, today, rentPaidOn = null) {
   if (!admissionDate) return null;
   const ad = new Date(admissionDate + "T00:00:00");
   const dueDay = ad.getDate(); // the tenant's actual billing anchor day, e.g. 31
@@ -487,15 +494,18 @@ function getRentStatus(admissionDate, today) {
   if (diff === 0) return { type: "due_today", label: "Due Today", color: "#ef4444", bg: "#fef2f2", icon: "🔴", daysUntil: 0, dueDay };
   if (diff > 0 && diff <= 3) return { type: "due_soon", label: `Due in ${diff} day${diff>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil: diff, dueDay };
   if (diff < 0) {
-    // This month's due day has already passed with no payment — they're
-    // overdue, full stop. (Whether they've actually paid is checked
-    // separately via isActiveForCycle; this function only reaches here at
-    // all for tenants who haven't, since paid tenants get filtered out
-    // before rentStatus.type is used for display.) Count exact days overdue
-    // from the real cycle start, so it stays correct even across a month
-    // boundary, instead of quietly resetting to "counting down to next month".
-    const cycleStart = getCycleStart(dueDay, today);
-    const daysOverdue = Math.max(1, Math.round((today - cycleStart) / (24*60*60*1000)));
+    // Overdue — count days from the FIRST cycle they missed (right after
+    // their last actual payment, or admission if they've never paid), not
+    // from the most recent cycle boundary. This way, someone who's skipped
+    // two entire cycles correctly shows ~60 days overdue instead of the
+    // count quietly restarting small every time a new cycle boundary passes.
+    const sinceDate = rentPaidOn ? new Date(rentPaidOn) : ad;
+    const coveredCycleStart = getCycleStart(dueDay, sinceDate);
+    let y = coveredCycleStart.getFullYear(), m = coveredCycleStart.getMonth() + 1;
+    if (m > 11) { m = 0; y++; }
+    const daysInM = new Date(y, m + 1, 0).getDate();
+    const firstMissedBoundary = new Date(y, m, Math.min(dueDay, daysInM));
+    const daysOverdue = Math.max(1, Math.round((today - firstMissedBoundary) / (24*60*60*1000)));
     return { type: "overdue", label: `${daysOverdue} day${daysOverdue !== 1 ? "s" : ""} overdue`, color: "#b91c1c", bg: "#fef2f2", icon: "🔴", daysOverdue, dueDay };
   }
   return { type: "ok", label: `Due on ${ordinal(dueDay)}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil: diff, dueDay };
@@ -516,6 +526,16 @@ function getCycleStart(dueDay, today) {
 }
 
 // Is a stored timestamp (paid-on / snoozed-at) still valid for the current billing cycle?
+// Custom-duration snooze check — simple date comparison, independent of
+// cycle boundaries, since a snooze can now last any chosen number of days
+// (1 to 90) rather than always exactly "until next cycle."
+function isSnoozedNow(rentSnoozedUntil, today) {
+  if (!rentSnoozedUntil) return false;
+  const until = new Date(rentSnoozedUntil);
+  if (isNaN(until.getTime())) return false;
+  return until >= today;
+}
+
 function isActiveForCycle(isoDateStr, dueDay, today) {
   if (!isoDateStr) return false;
   const cycleStart = getCycleStart(dueDay, today);
@@ -536,7 +556,7 @@ function getCycleStart15(admissionDate, today) {
   return new Date(ad.getTime() + cyclesPassed * 15 * MS_PER_DAY);
 }
 
-function getRentStatus15(admissionDate, today) {
+function getRentStatus15(admissionDate, today, rentPaidOn = null) {
   if (!admissionDate) return null;
   const cycleStart = getCycleStart15(admissionDate, today);
   const nextDue = new Date(cycleStart.getTime() + 15 * MS_PER_DAY);
@@ -545,7 +565,12 @@ function getRentStatus15(admissionDate, today) {
   if (daysUntil === 0) return { type: "due_today", label: "Due Today", color: "#ef4444", bg: "#fef2f2", icon: "🔴", daysUntil: 0, cycleStart, nextDue };
   if (daysUntil > 0 && daysUntil <= 3) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil, cycleStart, nextDue };
   if (daysUntil < 0) {
-    const daysOverdue = -daysUntil;
+    // Same fix as monthly — count from the first missed 15-day cycle since
+    // their last actual payment, not the most recent cycle boundary.
+    const sinceDate = rentPaidOn ? new Date(rentPaidOn) : new Date(admissionDate + "T00:00:00");
+    const coveredCycleStart = getCycleStart15(admissionDate, sinceDate);
+    const firstMissedBoundary = new Date(coveredCycleStart.getTime() + 15 * MS_PER_DAY);
+    const daysOverdue = Math.max(1, Math.round((today - firstMissedBoundary) / MS_PER_DAY));
     return { type: "overdue", label: `${daysOverdue} day${daysOverdue !== 1 ? "s" : ""} overdue`, color: "#b91c1c", bg: "#fef2f2", icon: "🔴", daysOverdue, cycleStart, nextDue };
   }
   return { type: "ok", label: `Due on ${dueLabel}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil, cycleStart, nextDue };
@@ -757,14 +782,12 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
   const cyclicHome = tenants.filter(t => (t.billingType || "monthly") !== "daily" && t.admissionDate);
   const homeCategorized = cyclicHome.map(t => {
     const is15 = t.billingType === "15day";
-    const rentStatus = is15 ? getRentStatus15(t.admissionDate, today) : getRentStatus(t.admissionDate, today);
+    const rentStatus = is15 ? getRentStatus15(t.admissionDate, today, t.rentPaidOn) : getRentStatus(t.admissionDate, today, t.rentPaidOn);
     if (!rentStatus) return null;
     const isPaid = is15
       ? isActiveForCycle15(t.rentPaidOn, rentStatus.cycleStart)
       : isActiveForCycle(t.rentPaidOn, rentStatus.dueDay, today);
-    const isSnoozed = !isPaid && (is15
-      ? isActiveForCycle15(t.rentSnoozedAt, rentStatus.cycleStart)
-      : isActiveForCycle(t.rentSnoozedAt, rentStatus.dueDay, today));
+    const isSnoozed = !isPaid && isSnoozedNow(t.rentSnoozedUntil, today);
     return { ...t, rentStatus, isPaid, isSnoozed };
   }).filter(Boolean).filter(t => !t.isPaid && !t.isSnoozed);
   const overdue = homeCategorized.filter(t => t.rentStatus.type === "overdue").sort((a,b) => (b.rentStatus.daysOverdue||0) - (a.rentStatus.daysOverdue||0));
@@ -1002,7 +1025,7 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
 }
 
 // ── TENANT SEARCH PAGE ────────────────────────────────────────
-function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true }) {
+function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true, isAdmin = false }) {
   const [query, setQuery] = useState("");
   const [companyFilter, setCompanyFilter] = useState("all");
   const allTenants = getAllTenants(rooms);
@@ -1050,9 +1073,11 @@ function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true }) 
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 3px" }}>Tenant Search</h1>
           <p style={{ margin: 0, color: "#64748b", fontSize: 14 }}>{allTenants.length} tenants across all floors</p>
         </div>
-        <button onClick={exportCurrentTenantsCSV} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid #86efac", background: "#f0fdf4", color: "#15803d", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
-          ⬇️ Export CSV
-        </button>
+        {isAdmin && (
+          <button onClick={exportCurrentTenantsCSV} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid #86efac", background: "#f0fdf4", color: "#15803d", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+            ⬇️ Export CSV
+          </button>
+        )}
       </div>
 
       <div style={{ position: "relative", marginBottom: 20 }}>
@@ -1311,7 +1336,7 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
 // ── RENT DUE PAGE ─────────────────────────────────────────────
 // Shared receipt PDF generator — used both for a freshly-marked-paid tenant
 // and for reprinting any past payment from the permanent ledger in Reports.
-function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amount, mode, receiptNo, cycleNote, docTitle = "Rent Receipt", amountLabel = "AMOUNT PAID", fileTag = "" }) {
+function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amount, mode, receiptNo, cycleNote, note = "", docTitle = "Rent Receipt", amountLabel = "AMOUNT PAID", fileTag = "" }) {
   const { jsPDF } = window.jspdf || {};
   if (!jsPDF) { alert("PDF library still loading — try again in a moment."); return; }
 
@@ -1328,15 +1353,21 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
     ["Date", fmtDateIST(paidDate, { day: "numeric", month: "long", year: "numeric" })],
     ["Time", fmtDateIST(paidDate, { hour: "numeric", minute: "2-digit", hour12: true }) + " IST"],
     ["Mode", mode || "-"],
-    ["Note", cycleNote || "-"],
+    ["Cycle", cycleNote || "-"],
   ];
+  // Free-text notes are a separate row from cycle info, and only shown when
+  // actually provided — this used to be conflated into one confusing "Note"
+  // field that mixed billing-cycle text with anything the staff typed in.
+  if (note && note.trim()) rows.push(["Notes", note.trim()]);
   let y = 84;
   doc.setFontSize(11);
   rows.forEach(([label, value]) => {
     doc.setTextColor(100); doc.text(label, 24, y);
-    doc.setTextColor(20); doc.text(String(value), 296, y, { align: "right" });
-    doc.setDrawColor(230); doc.line(24, y + 8, 296, y + 8);
-    y += 26;
+    doc.setTextColor(20);
+    const valueLines = doc.splitTextToSize(String(value), 170);
+    doc.text(valueLines, 296, y, { align: "right" });
+    doc.setDrawColor(230); doc.line(24, y + 8 + (valueLines.length - 1) * 12, 296, y + 8 + (valueLines.length - 1) * 12);
+    y += 26 + (valueLines.length - 1) * 12;
   });
 
   doc.setFontSize(9); doc.setTextColor(150); doc.text(amountLabel, 160, y + 24, { align: "center" });
@@ -1366,6 +1397,11 @@ function RentPage({ rooms, setRooms, today }) {
   const [loadingReports, setLoadingReports] = useState(false);
   const [reportYear, setReportYear] = useState(today.getFullYear());
   const [showHistorySearch, setShowHistorySearch] = useState(false);
+  const [snoozeModal, setSnoozeModal] = useState(null);
+  const [snoozeDays, setSnoozeDays] = useState(7);
+  const [unsnoozeConfirm, setUnsnoozeConfirm] = useState(null);
+  const [paymentNote, setPaymentNote] = useState("");
+  const [receiptNoteEdit, setReceiptNoteEdit] = useState("");
   const [historySearch, setHistorySearch] = useState("");
 
   useEffect(() => {
@@ -1406,14 +1442,14 @@ function RentPage({ rooms, setRooms, today }) {
     setBusyKey(null);
   }
 
-  async function markPaid(t, paymentMode) {
+  async function markPaid(t, paymentMode, note = "") {
     const nowIso = new Date().toISOString();
     const receiptNo = generateReceiptNo(nowIso);
     const finalMode = paymentMode;
     await patchTenant(
       t,
-      { rent_paid_on: nowIso, rent_snoozed_at: null, rent_payment_mode: finalMode, rent_receipt_no: receiptNo },
-      { rentPaidOn: nowIso, rentSnoozedAt: "", rentPaymentMode: finalMode, rentReceiptNo: receiptNo }
+      { rent_paid_on: nowIso, rent_snoozed_at: null, rent_snoozed_until: null, rent_payment_mode: finalMode, rent_receipt_no: receiptNo, rent_note: note || null },
+      { rentPaidOn: nowIso, rentSnoozedAt: "", rentSnoozedUntil: "", rentPaymentMode: finalMode, rentReceiptNo: receiptNo, rentNote: note }
     );
     // Permanent ledger entry — survives even after this tenant checks out/is archived,
     // so month/year revenue reports always stay accurate.
@@ -1427,6 +1463,7 @@ function RentPage({ rooms, setRooms, today }) {
         amount: Number(t.rentAmount) || 0,
         payment_mode: finalMode,
         paid_at: nowIso,
+        note: note || null,
       });
     } catch (e) { console.warn("Payment log failed (table may not exist yet):", e); }
   }
@@ -1446,12 +1483,17 @@ function RentPage({ rooms, setRooms, today }) {
       } catch (e) { console.warn("Could not remove payment ledger entry:", e); }
     }
   }
-  async function snoozeTenant(t) {
+  async function snoozeTenant(t, days) {
     const nowIso = new Date().toISOString();
-    await patchTenant(t, { rent_snoozed_at: nowIso }, { rentSnoozedAt: nowIso });
+    const untilIso = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    await patchTenant(
+      t,
+      { rent_snoozed_at: nowIso, rent_snoozed_until: untilIso },
+      { rentSnoozedAt: nowIso, rentSnoozedUntil: untilIso }
+    );
   }
   async function unsnoozeTenant(t) {
-    await patchTenant(t, { rent_snoozed_at: null }, { rentSnoozedAt: "" });
+    await patchTenant(t, { rent_snoozed_at: null, rent_snoozed_until: null }, { rentSnoozedAt: "", rentSnoozedUntil: "" });
   }
 
   function printReceipt(t) {
@@ -1470,41 +1512,41 @@ function RentPage({ rooms, setRooms, today }) {
       cycleNote: is15
         ? (t.rentStatus ? `15-Day Cycle · next due ${fmtDateIST(t.rentStatus.nextDue, { day: "numeric", month: "short" })}` : "15-Day Cycle")
         : (t.rentStatus ? `Due on ${t.rentStatus.dueDay} · Monthly` : "Monthly"),
+      note: t.rentNote || "",
     });
   }
 
-  async function confirmReceiptAndPrint(t, mode) {
+  async function confirmReceiptAndPrint(t, mode, note = "") {
     const finalMode = mode === "Other" ? receiptModeOther.trim() : mode;
     setReceiptModal(null);
-    if (finalMode !== t.rentPaymentMode) {
+    const fieldsChanged = finalMode !== t.rentPaymentMode || note !== (t.rentNote || "");
+    if (fieldsChanged) {
       // Keep the tenant row and the permanent ledger entry in sync
       try {
-        await sbFetch(`/tenants?id=eq.${t.dbId}`, "PATCH", { rent_payment_mode: finalMode }, { "Prefer": "return=minimal" });
+        await sbFetch(`/tenants?id=eq.${t.dbId}`, "PATCH", { rent_payment_mode: finalMode, rent_note: note || null }, { "Prefer": "return=minimal" });
         if (t.rentReceiptNo) {
-          await sbFetch(`/payments?receipt_no=eq.${t.rentReceiptNo}`, "PATCH", { payment_mode: finalMode }, { "Prefer": "return=minimal" });
+          await sbFetch(`/payments?receipt_no=eq.${t.rentReceiptNo}`, "PATCH", { payment_mode: finalMode, note: note || null }, { "Prefer": "return=minimal" });
         }
         setRooms(prev => {
           const roomId = `${t.floor}-${t.roomNumber}`;
           const room = prev[roomId];
           if (!room) return prev;
           const bedIndex = t.bed - 1;
-          const newTenants = room.tenants.map((tn, bi) => bi === bedIndex ? { ...tn, rentPaymentMode: finalMode } : tn);
+          const newTenants = room.tenants.map((tn, bi) => bi === bedIndex ? { ...tn, rentPaymentMode: finalMode, rentNote: note } : tn);
           return { ...prev, [roomId]: { ...room, tenants: newTenants } };
         });
-      } catch (e) { console.warn("Could not update payment mode:", e); }
+      } catch (e) { console.warn("Could not update payment mode/note:", e); }
     }
-    printReceipt({ ...t, rentPaymentMode: finalMode });
+    printReceipt({ ...t, rentPaymentMode: finalMode, rentNote: note });
   }
 
   const categorized = withDates.map(t => {
     const is15 = (t.billingType || "monthly") === "15day";
-    const rentStatus = is15 ? getRentStatus15(t.admissionDate, today) : getRentStatus(t.admissionDate, today);
+    const rentStatus = is15 ? getRentStatus15(t.admissionDate, today, t.rentPaidOn) : getRentStatus(t.admissionDate, today, t.rentPaidOn);
     const isPaid = !!rentStatus && (is15
       ? isActiveForCycle15(t.rentPaidOn, rentStatus.cycleStart)
       : isActiveForCycle(t.rentPaidOn, rentStatus.dueDay, today));
-    const isSnoozed = !isPaid && !!rentStatus && (is15
-      ? isActiveForCycle15(t.rentSnoozedAt, rentStatus.cycleStart)
-      : isActiveForCycle(t.rentSnoozedAt, rentStatus.dueDay, today));
+    const isSnoozed = !isPaid && !!rentStatus && isSnoozedNow(t.rentSnoozedUntil, today);
     return { ...t, rentStatus, isPaid, isSnoozed, is15 };
   });
   const allDue = categorized.filter(t => !t.isPaid && !t.isSnoozed);
@@ -1767,7 +1809,7 @@ function RentPage({ rooms, setRooms, today }) {
                         </div>
                       </div>
                       <span style={{ flexShrink: 0, background: isPaid ? "#dcfce7" : isSnoozed ? "#ede9fe" : rs.bg, color: isPaid ? "#15803d" : isSnoozed ? "#7c3aed" : rs.color, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 99, border: `1px solid ${borderColor}44`, whiteSpace: "nowrap" }}>
-                        {isPaid ? "✅ Paid" : isSnoozed ? "⏭️ Snoozed" : `${rs.icon} ${rs.label}`}
+                        {isPaid ? "✅ Paid" : isSnoozed ? `⏰ Snoozed to ${fmtDateIST(new Date(t.rentSnoozedUntil), { day: "numeric", month: "short" })}` : `${rs.icon} ${rs.label}`}
                       </span>
                     </div>
                     {/* Action buttons row */}
@@ -1776,17 +1818,17 @@ function RentPage({ rooms, setRooms, today }) {
                       <div style={{ flex: 1 }} />
                       {!isPaid && !isSnoozed && (
                         <>
-                          <button disabled={isBusy} onClick={() => { setPaymentMode("Cash"); setPaymentModeOther(""); setPaidModal(t); }} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "#22c55e", color: "#fff", fontWeight: 800, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5 }}>
+                          <button disabled={isBusy} onClick={() => { setPaymentMode("Cash"); setPaymentModeOther(""); setPaymentNote(""); setPaidModal(t); }} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "#22c55e", color: "#fff", fontWeight: 800, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5 }}>
                             ✅ Mark Paid
                           </button>
-                          <button disabled={isBusy} onClick={() => snoozeTenant(t)} style={{ padding: "8px 14px", borderRadius: 10, border: "1.5px solid #c4b5fd", background: "#f5f3ff", color: "#7c3aed", fontWeight: 700, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
-                            ⏭️ Next Cycle
+                          <button disabled={isBusy} onClick={() => { setSnoozeDays(7); setSnoozeModal(t); }} style={{ padding: "8px 14px", borderRadius: 10, border: "1.5px solid #c4b5fd", background: "#f5f3ff", color: "#7c3aed", fontWeight: 700, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                            ⏰ Snooze
                           </button>
                         </>
                       )}
                       {isPaid && (
                         <>
-                          <button onClick={() => { setReceiptMode(t.rentPaymentMode || "Cash"); setReceiptModeOther(""); setReceiptModal(t); }} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                          <button onClick={() => { setReceiptMode(t.rentPaymentMode || "Cash"); setReceiptModeOther(""); setReceiptNoteEdit(t.rentNote || ""); setReceiptModal(t); }} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                             🧾 Receipt
                           </button>
                           <button disabled={isBusy} onClick={() => undoPaid(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
@@ -1795,7 +1837,7 @@ function RentPage({ rooms, setRooms, today }) {
                         </>
                       )}
                       {isSnoozed && (
-                        <button disabled={isBusy} onClick={() => unsnoozeTenant(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                        <button disabled={isBusy} onClick={() => setUnsnoozeConfirm(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
                           Unsnooze
                         </button>
                       )}
@@ -1832,6 +1874,15 @@ function RentPage({ rooms, setRooms, today }) {
               <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
               <PaymentModeSelector mode={paymentMode} setMode={setPaymentMode} otherText={paymentModeOther} setOtherText={setPaymentModeOther} />
             </div>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 6 }}>Notes (optional — will print on the receipt)</div>
+              <input
+                value={paymentNote}
+                onChange={e => setPaymentNote(e.target.value)}
+                placeholder="e.g. partial adjustment, late fee waived…"
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 13, boxSizing: "border-box" }}
+              />
+            </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setPaidModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
                 Cancel
@@ -1839,8 +1890,9 @@ function RentPage({ rooms, setRooms, today }) {
               <button onClick={async () => {
                 const t = paidModal;
                 const mode = paymentMode === "Other" ? paymentModeOther.trim() : paymentMode;
+                const note = paymentNote.trim();
                 setPaidModal(null);
-                await markPaid(t, mode);
+                await markPaid(t, mode, note);
               }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#22c55e", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
                 ✅ Yes, Received!
               </button>
@@ -1873,12 +1925,88 @@ function RentPage({ rooms, setRooms, today }) {
               <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
               <PaymentModeSelector mode={receiptMode} setMode={setReceiptMode} otherText={receiptModeOther} setOtherText={setReceiptModeOther} />
             </div>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 6 }}>Notes (optional — printed on the receipt)</div>
+              <input
+                value={receiptNoteEdit}
+                onChange={e => setReceiptNoteEdit(e.target.value)}
+                placeholder="e.g. partial adjustment, late fee waived…"
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 13, boxSizing: "border-box" }}
+              />
+            </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setReceiptModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
                 Cancel
               </button>
-              <button onClick={() => confirmReceiptAndPrint(receiptModal, receiptMode)} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#1d4ed8", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+              <button onClick={() => confirmReceiptAndPrint(receiptModal, receiptMode, receiptNoteEdit.trim())} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#1d4ed8", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
                 🧾 Print / Save PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Snooze confirmation — custom duration, 1 day to 3 months (90 days) */}
+      {snoozeModal && (
+        <div onClick={() => setSnoozeModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#e2e8f0" }} /></div>
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{ fontSize: 52, marginBottom: 10 }}>⏰</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1a2332" }}>Snooze Rent Reminder</div>
+              <div style={{ fontSize: 14, color: "#64748b", marginTop: 8 }}>For</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1a2332", marginTop: 4 }}>{snoozeModal.name}</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Floor {snoozeModal.floor} · Room {snoozeModal.roomNumber} · Bed {snoozeModal.bed}</div>
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textAlign: "center" }}>Hide from Rent Due for how many days?</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                <input type="range" min={1} max={90} value={snoozeDays} onChange={e => setSnoozeDays(Number(e.target.value))} style={{ flex: 1 }} />
+                <input type="number" min={1} max={90} value={snoozeDays} onChange={e => setSnoozeDays(Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
+                  style={{ width: 60, padding: "8px 6px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 14, textAlign: "center" }} />
+              </div>
+              <div style={{ display: "flex", gap: 6, justifyContent: "center", marginBottom: 8 }}>
+                {[1, 3, 7, 14, 30, 90].map(d => (
+                  <button key={d} onClick={() => setSnoozeDays(d)} style={{
+                    padding: "5px 10px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                    border: snoozeDays === d ? "2px solid #7c3aed" : "1.5px solid #e2e8f0",
+                    background: snoozeDays === d ? "#f5f3ff" : "#fff",
+                    color: snoozeDays === d ? "#7c3aed" : "#64748b",
+                  }}>{d === 90 ? "3mo" : d + "d"}</button>
+                ))}
+              </div>
+              <div style={{ textAlign: "center", fontSize: 12.5, color: "#7c3aed", fontWeight: 700, background: "#f5f3ff", borderRadius: 8, padding: "6px 10px" }}>
+                Will reappear on {fmtDateIST(new Date(Date.now() + snoozeDays * 24*60*60*1000), { day: "numeric", month: "short", year: "numeric" })}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+              <button onClick={() => setSnoozeModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
+              <button onClick={async () => {
+                const t = snoozeModal;
+                const days = snoozeDays;
+                setSnoozeModal(null);
+                await snoozeTenant(t, days);
+              }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+                ⏰ Snooze {snoozeDays} day{snoozeDays !== 1 ? "s" : ""}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unsnooze confirmation */}
+      {unsnoozeConfirm && (
+        <div onClick={() => setUnsnoozeConfirm(null)} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 210, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 340 }}>
+            <div style={{ fontSize: 40, textAlign: "center", marginBottom: 8 }}>⏰</div>
+            <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>Remove snooze?</div>
+            <div style={{ fontSize: 13, color: "#64748b", textAlign: "center", marginBottom: 18 }}>
+              <b>{unsnoozeConfirm.name}</b> will immediately show up as due again in the Rent Due list, instead of staying hidden until {fmtDateIST(new Date(unsnoozeConfirm.rentSnoozedUntil), { day: "numeric", month: "short" })}.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setUnsnoozeConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+              <button onClick={async () => { const t = unsnoozeConfirm; setUnsnoozeConfirm(null); await unsnoozeTenant(t); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                Yes, Unsnooze
               </button>
             </div>
           </div>
@@ -1933,13 +2061,13 @@ function DepositReportsPanel({ depositsLog, loading }) {
       generateReceiptPDF({
         name: tx.tenant_name, phone: tx.phone, floorLabel: FLOOR_LABELS[tx.floor] || "Floor " + tx.floor,
         roomNumber: tx.room_number, paidDate: new Date(tx.collected_at), amount: tx.amount, mode: tx.payment_mode,
-        receiptNo: tx.receipt_no, cycleNote: "Security Deposit", docTitle: "Security Deposit Receipt", amountLabel: "DEPOSIT COLLECTED", fileTag: "deposit",
+        receiptNo: tx.receipt_no, cycleNote: "Security Deposit", note: tx.collect_note || "", docTitle: "Security Deposit Receipt", amountLabel: "DEPOSIT COLLECTED", fileTag: "deposit",
       });
     } else {
       generateReceiptPDF({
         name: tx.tenant_name, phone: tx.phone, floorLabel: FLOOR_LABELS[tx.floor] || "Floor " + tx.floor,
         roomNumber: tx.room_number, paidDate: new Date(tx.returned_at), amount: tx.return_amount, mode: tx.return_mode,
-        receiptNo: tx.return_receipt_no, cycleNote: tx.return_note || "Security Deposit Return", docTitle: "Deposit Return Receipt", amountLabel: "AMOUNT RETURNED", fileTag: "deposit_return",
+        receiptNo: tx.return_receipt_no, cycleNote: "Security Deposit Return", note: tx.return_note || "", docTitle: "Deposit Return Receipt", amountLabel: "AMOUNT RETURNED", fileTag: "deposit_return",
       });
     }
   }
@@ -2040,6 +2168,7 @@ function DepositsPage({ rooms, setRooms, today }) {
   const [busyKey, setBusyKey] = useState(null);
 
   const [collectModal, setCollectModal] = useState(null); // tenant
+  const [collectNote, setCollectNote] = useState("");
   const [collectMode, setCollectMode] = useState("Cash");
   const [collectModeOther, setCollectModeOther] = useState("");
 
@@ -2064,7 +2193,7 @@ function DepositsPage({ rooms, setRooms, today }) {
 
   function tKey(t) { return `${t.floor}-${t.roomNumber}-${t.bed}`; }
 
-  async function collectDeposit(t, mode) {
+  async function collectDeposit(t, mode, note = "") {
     const key = tKey(t);
     setBusyKey(key);
     try {
@@ -2080,10 +2209,11 @@ function DepositsPage({ rooms, setRooms, today }) {
         amount,
         payment_mode: mode,
         collected_at: nowIso,
+        collect_note: note || null,
       });
       if (t.dbId) {
         try {
-          await sbFetch(`/tenants?id=eq.${t.dbId}`, "PATCH", { deposit_paid_on: nowIso, deposit_payment_mode: mode, deposit_receipt_no: receiptNo }, { "Prefer": "return=minimal" });
+          await sbFetch(`/tenants?id=eq.${t.dbId}`, "PATCH", { deposit_paid_on: nowIso, deposit_payment_mode: mode, deposit_receipt_no: receiptNo, deposit_note: note || null }, { "Prefer": "return=minimal" });
         } catch (e) { console.warn("Could not sync tenant record:", e); }
       }
       setRooms(prev => {
@@ -2091,14 +2221,14 @@ function DepositsPage({ rooms, setRooms, today }) {
         const room = prev[roomId];
         if (!room) return prev;
         const bedIndex = t.bed - 1;
-        const newTenants = room.tenants.map((tn, bi) => bi === bedIndex ? { ...tn, depositPaidOn: nowIso, depositPaymentMode: mode, depositReceiptNo: receiptNo } : tn);
+        const newTenants = room.tenants.map((tn, bi) => bi === bedIndex ? { ...tn, depositPaidOn: nowIso, depositPaymentMode: mode, depositReceiptNo: receiptNo, depositNote: note } : tn);
         return { ...prev, [roomId]: { ...room, tenants: newTenants } };
       });
       refreshLog();
       generateReceiptPDF({
         name: t.name, phone: t.phone, floorLabel: FLOOR_LABELS[t.floor] || "Floor " + t.floor,
         roomNumber: t.roomNumber, paidDate: new Date(nowIso), amount, mode, receiptNo,
-        cycleNote: "Security Deposit", docTitle: "Security Deposit Receipt", amountLabel: "DEPOSIT COLLECTED", fileTag: "deposit",
+        cycleNote: "Security Deposit", note, docTitle: "Security Deposit Receipt", amountLabel: "DEPOSIT COLLECTED", fileTag: "deposit",
       });
     } catch (e) {
       console.error(e);
@@ -2139,7 +2269,7 @@ function DepositsPage({ rooms, setRooms, today }) {
       generateReceiptPDF({
         name: row.tenant_name, phone: row.phone, floorLabel: FLOOR_LABELS[row.floor] || "Floor " + row.floor,
         roomNumber: row.room_number, paidDate: new Date(nowIso), amount, mode, receiptNo,
-        cycleNote: note || "Security Deposit Return", docTitle: "Deposit Return Receipt", amountLabel: "AMOUNT RETURNED", fileTag: "deposit_return",
+        cycleNote: "Security Deposit Return", note, docTitle: "Deposit Return Receipt", amountLabel: "AMOUNT RETURNED", fileTag: "deposit_return",
       });
     } catch (e) {
       console.error(e);
@@ -2152,7 +2282,7 @@ function DepositsPage({ rooms, setRooms, today }) {
     generateReceiptPDF({
       name: row.tenant_name, phone: row.phone, floorLabel: FLOOR_LABELS[row.floor] || "Floor " + row.floor,
       roomNumber: row.room_number, paidDate: new Date(row.collected_at), amount: row.amount, mode: row.payment_mode,
-      receiptNo: row.receipt_no, cycleNote: "Security Deposit", docTitle: "Security Deposit Receipt", amountLabel: "DEPOSIT COLLECTED", fileTag: "deposit",
+      receiptNo: row.receipt_no, cycleNote: "Security Deposit", note: row.collect_note || "", docTitle: "Security Deposit Receipt", amountLabel: "DEPOSIT COLLECTED", fileTag: "deposit",
     });
   }
 
@@ -2160,7 +2290,7 @@ function DepositsPage({ rooms, setRooms, today }) {
     generateReceiptPDF({
       name: row.tenant_name, phone: row.phone, floorLabel: FLOOR_LABELS[row.floor] || "Floor " + row.floor,
       roomNumber: row.room_number, paidDate: new Date(row.returned_at), amount: row.return_amount, mode: row.return_mode,
-      receiptNo: row.return_receipt_no, cycleNote: row.return_note || "Security Deposit Return", docTitle: "Deposit Return Receipt", amountLabel: "AMOUNT RETURNED", fileTag: "deposit_return",
+      receiptNo: row.return_receipt_no, cycleNote: "Security Deposit Return", note: row.return_note || "", docTitle: "Deposit Return Receipt", amountLabel: "AMOUNT RETURNED", fileTag: "deposit_return",
     });
   }
 
@@ -2333,7 +2463,7 @@ function DepositsPage({ rooms, setRooms, today }) {
                     <div style={{ fontSize: 12, color: "#64748b" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#b45309", marginTop: 2 }}>₹{Number(t.depositAmount).toLocaleString("en-IN")}</div>
                   </div>
-                  <button disabled={isBusy} onClick={() => { setCollectMode("Cash"); setCollectModeOther(""); setCollectModal(t); }} style={{ padding: "8px 14px", borderRadius: 10, border: "none", background: "#22c55e", color: "#fff", fontWeight: 700, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1, whiteSpace: "nowrap" }}>
+                  <button disabled={isBusy} onClick={() => { setCollectMode("Cash"); setCollectModeOther(""); setCollectNote(""); setCollectModal(t); }} style={{ padding: "8px 14px", borderRadius: 10, border: "none", background: "#22c55e", color: "#fff", fontWeight: 700, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1, whiteSpace: "nowrap" }}>
                     ✅ Mark Collected
                   </button>
                 </div>
@@ -2421,13 +2551,23 @@ function DepositsPage({ rooms, setRooms, today }) {
               <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
               <PaymentModeSelector mode={collectMode} setMode={setCollectMode} otherText={collectModeOther} setOtherText={setCollectModeOther} />
             </div>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 6 }}>Notes (optional — printed on the receipt)</div>
+              <input
+                value={collectNote}
+                onChange={e => setCollectNote(e.target.value)}
+                placeholder="e.g. partial deposit, will collect balance later…"
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 13, boxSizing: "border-box" }}
+              />
+            </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setCollectModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
               <button onClick={async () => {
                 const t = collectModal;
                 const mode = collectMode === "Other" ? collectModeOther.trim() : collectMode;
+                const note = collectNote.trim();
                 setCollectModal(null);
-                await collectDeposit(t, mode);
+                await collectDeposit(t, mode, note);
               }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#22c55e", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>✅ Yes, Received!</button>
             </div>
           </div>
@@ -3473,10 +3613,10 @@ function App() {
   const rentAlerts = tenants.filter(t => {
     if ((t.billingType || "monthly") === "daily" || !t.admissionDate) return false;
     const is15 = t.billingType === "15day";
-    const rs = is15 ? getRentStatus15(t.admissionDate, today) : getRentStatus(t.admissionDate, today);
+    const rs = is15 ? getRentStatus15(t.admissionDate, today, t.rentPaidOn) : getRentStatus(t.admissionDate, today, t.rentPaidOn);
     if (!rs || !(rs.type === "due_today" || rs.type === "due_soon" || rs.type === "overdue")) return false;
     const isPaid = is15 ? isActiveForCycle15(t.rentPaidOn, rs.cycleStart) : isActiveForCycle(t.rentPaidOn, rs.dueDay, today);
-    const isSnoozed = !isPaid && (is15 ? isActiveForCycle15(t.rentSnoozedAt, rs.cycleStart) : isActiveForCycle(t.rentSnoozedAt, rs.dueDay, today));
+    const isSnoozed = !isPaid && isSnoozedNow(t.rentSnoozedUntil, today);
     return !isPaid && !isSnoozed;
   }).length;
 
@@ -3527,7 +3667,7 @@ function App() {
       <Nav page={page} setPage={setPage} allStats={allStats} rentAlerts={rentAlerts} user={user} userRole={userRole} isAdmin={isAdmin} isManager={isManager} />
       {page === "home" && <HomePage rooms={rooms} setPage={setPage} setActiveFloor={setActiveFloor} today={today} isManager={isManager} />}
       {page === "rooms" && <RoomsPage rooms={rooms} setRooms={setRooms} activeFloor={activeFloor} setActiveFloor={setActiveFloor} onSaveRoom={handleSaveRoom} isManager={isManager} />}
-      {page === "search" && <TenantSearchPage rooms={rooms} setPage={setPage} setActiveFloor={setActiveFloor} isManager={isManager} />}
+      {page === "search" && <TenantSearchPage rooms={rooms} setPage={setPage} setActiveFloor={setActiveFloor} isManager={isManager} isAdmin={isAdmin} />}
       {isManager && page === "rent" && <RentPage rooms={rooms} setRooms={setRooms} today={today} />}
       {isManager && page === "deposits" && <DepositsPage rooms={rooms} setRooms={setRooms} today={today} />}
       {isAdmin && page === "history" && <HistoryPage />}
