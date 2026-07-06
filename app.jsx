@@ -198,6 +198,7 @@ async function loadAllRooms() {
         rentReceiptNo: t.rent_receipt_no || "",
         rentSnoozedAt: t.rent_snoozed_at || "",
         rentSnoozedUntil: t.rent_snoozed_until || "",
+        rentSnoozedCycleStart: t.rent_snoozed_cycle_start || "",
         rentNote: t.rent_note || "",
         depositAmount: t.deposit_amount || "",
         depositPaidOn: t.deposit_paid_on || "",
@@ -319,6 +320,7 @@ async function saveRoom(room, tenants) {
       rent_receipt_no: t.rentReceiptNo || null,
       rent_snoozed_at: t.rentSnoozedAt || null,
       rent_snoozed_until: t.rentSnoozedUntil || null,
+      rent_snoozed_cycle_start: t.rentSnoozedCycleStart || null,
       rent_note: t.rentNote || null,
       deposit_amount: t.depositAmount || null,
       deposit_paid_on: t.depositPaidOn || null,
@@ -387,7 +389,7 @@ const ROOM_COUNTS = { 0: 3, 1: 40, 2: 40, 3: 40, 4: 4 };
 const FLOOR_LABELS = { 0: "Ground", 1: "Floor 1", 2: "Floor 2", 3: "Floor 3", 4: "Floor 4" };
 
 function makeBeds(count, existing = []) {
-  return Array.from({ length: count }, (_, i) => existing[i] || { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "", rentPaidOn: "", rentSnoozedAt: "", rentSnoozedUntil: "", rentPaymentMode: "", rentReceiptNo: "", rentNote: "", depositAmount: "", depositPaidOn: "", depositPaymentMode: "", depositReceiptNo: "", depositReturnedOn: "", depositReturnAmount: "", depositNote: "" });
+  return Array.from({ length: count }, (_, i) => existing[i] || { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "", rentPaidOn: "", rentSnoozedAt: "", rentSnoozedUntil: "", rentSnoozedCycleStart: "", rentPaymentMode: "", rentReceiptNo: "", rentNote: "", depositAmount: "", depositPaidOn: "", depositPaymentMode: "", depositReceiptNo: "", depositReturnedOn: "", depositReturnAmount: "", depositNote: "" });
 }
 
 function initRooms() {
@@ -529,11 +531,18 @@ function getCycleStart(dueDay, today) {
 // Custom-duration snooze check — simple date comparison, independent of
 // cycle boundaries, since a snooze can now last any chosen number of days
 // (1 to 90) rather than always exactly "until next cycle."
-function isSnoozedNow(rentSnoozedUntil, today) {
+// Custom-duration snooze check — but scoped to the SPECIFIC cycle it was
+// applied to. If a brand new cycle has started since snoozing (e.g. you
+// snooze for 90 days but next month's due date arrives in 30), the snooze
+// no longer applies — that's a new, separate obligation, not the one you
+// snoozed. The outer "until" date is just a safety cap so a snooze can never
+// silently last forever even within the same cycle.
+function isSnoozedNow(rentSnoozedUntil, rentSnoozedCycleStart, currentCycleStart, today) {
   if (!rentSnoozedUntil) return false;
   const until = new Date(rentSnoozedUntil);
-  if (isNaN(until.getTime())) return false;
-  return until >= today;
+  if (isNaN(until.getTime()) || until < today) return false;
+  if (!rentSnoozedCycleStart || !currentCycleStart) return true;
+  return new Date(rentSnoozedCycleStart).toDateString() === currentCycleStart.toDateString();
 }
 
 function isActiveForCycle(isoDateStr, dueDay, today) {
@@ -787,7 +796,7 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
     const isPaid = is15
       ? isActiveForCycle15(t.rentPaidOn, rentStatus.cycleStart)
       : isActiveForCycle(t.rentPaidOn, rentStatus.dueDay, today);
-    const isSnoozed = !isPaid && isSnoozedNow(t.rentSnoozedUntil, today);
+    const isSnoozed = !isPaid && isSnoozedNow(t.rentSnoozedUntil, t.rentSnoozedCycleStart, is15 ? rentStatus.cycleStart : getCycleStart(rentStatus.dueDay, today), today);
     return { ...t, rentStatus, isPaid, isSnoozed };
   }).filter(Boolean).filter(t => !t.isPaid && !t.isSnoozed);
   const overdue = homeCategorized.filter(t => t.rentStatus.type === "overdue").sort((a,b) => (b.rentStatus.daysOverdue||0) - (a.rentStatus.daysOverdue||0));
@@ -1448,8 +1457,8 @@ function RentPage({ rooms, setRooms, today }) {
     const finalMode = paymentMode;
     await patchTenant(
       t,
-      { rent_paid_on: nowIso, rent_snoozed_at: null, rent_snoozed_until: null, rent_payment_mode: finalMode, rent_receipt_no: receiptNo, rent_note: note || null },
-      { rentPaidOn: nowIso, rentSnoozedAt: "", rentSnoozedUntil: "", rentPaymentMode: finalMode, rentReceiptNo: receiptNo, rentNote: note }
+      { rent_paid_on: nowIso, rent_snoozed_at: null, rent_snoozed_until: null, rent_snoozed_cycle_start: null, rent_payment_mode: finalMode, rent_receipt_no: receiptNo, rent_note: note || null },
+      { rentPaidOn: nowIso, rentSnoozedAt: "", rentSnoozedUntil: "", rentSnoozedCycleStart: "", rentPaymentMode: finalMode, rentReceiptNo: receiptNo, rentNote: note }
     );
     // Permanent ledger entry — survives even after this tenant checks out/is archived,
     // so month/year revenue reports always stay accurate.
@@ -1486,14 +1495,19 @@ function RentPage({ rooms, setRooms, today }) {
   async function snoozeTenant(t, days) {
     const nowIso = new Date().toISOString();
     const untilIso = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    const is15 = (t.billingType || "monthly") === "15day";
+    const cycleStart = is15
+      ? getCycleStart15(t.admissionDate, today)
+      : getCycleStart(new Date(t.admissionDate + "T00:00:00").getDate(), today);
+    const cycleStartIso = cycleStart.toISOString();
     await patchTenant(
       t,
-      { rent_snoozed_at: nowIso, rent_snoozed_until: untilIso },
-      { rentSnoozedAt: nowIso, rentSnoozedUntil: untilIso }
+      { rent_snoozed_at: nowIso, rent_snoozed_until: untilIso, rent_snoozed_cycle_start: cycleStartIso },
+      { rentSnoozedAt: nowIso, rentSnoozedUntil: untilIso, rentSnoozedCycleStart: cycleStartIso }
     );
   }
   async function unsnoozeTenant(t) {
-    await patchTenant(t, { rent_snoozed_at: null, rent_snoozed_until: null }, { rentSnoozedAt: "", rentSnoozedUntil: "" });
+    await patchTenant(t, { rent_snoozed_at: null, rent_snoozed_until: null, rent_snoozed_cycle_start: null }, { rentSnoozedAt: "", rentSnoozedUntil: "", rentSnoozedCycleStart: "" });
   }
 
   function printReceipt(t) {
@@ -1546,7 +1560,7 @@ function RentPage({ rooms, setRooms, today }) {
     const isPaid = !!rentStatus && (is15
       ? isActiveForCycle15(t.rentPaidOn, rentStatus.cycleStart)
       : isActiveForCycle(t.rentPaidOn, rentStatus.dueDay, today));
-    const isSnoozed = !isPaid && !!rentStatus && isSnoozedNow(t.rentSnoozedUntil, today);
+    const isSnoozed = !isPaid && !!rentStatus && isSnoozedNow(t.rentSnoozedUntil, t.rentSnoozedCycleStart, is15 ? rentStatus.cycleStart : getCycleStart(rentStatus.dueDay, today), today);
     return { ...t, rentStatus, isPaid, isSnoozed, is15 };
   });
   const allDue = categorized.filter(t => !t.isPaid && !t.isSnoozed);
@@ -1805,7 +1819,7 @@ function RentPage({ rooms, setRooms, today }) {
                         <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
                           Joined: {fmt(t.admissionDate)}
                           {isPaid && t.rentPaidOn && ` · Paid: ${fmtDateIST(new Date(t.rentPaidOn))}`}
-                          {isSnoozed && " · Snoozed to next cycle"}
+                          {isSnoozed && t.rentSnoozedUntil && ` · Snoozed until ${fmtDateIST(new Date(t.rentSnoozedUntil), { day: "numeric", month: "short" })} (or sooner if next cycle starts)`}
                         </div>
                       </div>
                       <span style={{ flexShrink: 0, background: isPaid ? "#dcfce7" : isSnoozed ? "#ede9fe" : rs.bg, color: isPaid ? "#15803d" : isSnoozed ? "#7c3aed" : rs.color, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 99, border: `1px solid ${borderColor}44`, whiteSpace: "nowrap" }}>
@@ -1981,8 +1995,11 @@ function RentPage({ rooms, setRooms, today }) {
                 ))}
               </div>
               <div style={{ textAlign: "center", fontSize: 12.5, color: "#7c3aed", fontWeight: 700, background: "#f5f3ff", borderRadius: 8, padding: "6px 10px" }}>
-                Will reappear on {fmtDateIST(new Date(Date.now() + snoozeDays * 24*60*60*1000), { day: "numeric", month: "short", year: "numeric" })}
+                Hidden until {fmtDateIST(new Date(Date.now() + snoozeDays * 24*60*60*1000), { day: "numeric", month: "short", year: "numeric" })} — but reappears sooner automatically if their next rent cycle begins first
               </div>
+            </div>
+            <div style={{ fontSize: 11.5, color: "#94a3b8", textAlign: "center", marginBottom: 4 }}>
+              This only snoozes the payment currently due — a new cycle starting during this period will show up as a fresh reminder.
             </div>
             <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
               <button onClick={() => setSnoozeModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
@@ -3621,7 +3638,7 @@ function App() {
     const rs = is15 ? getRentStatus15(t.admissionDate, today, t.rentPaidOn) : getRentStatus(t.admissionDate, today, t.rentPaidOn);
     if (!rs || !(rs.type === "due_today" || rs.type === "due_soon" || rs.type === "overdue")) return false;
     const isPaid = is15 ? isActiveForCycle15(t.rentPaidOn, rs.cycleStart) : isActiveForCycle(t.rentPaidOn, rs.dueDay, today);
-    const isSnoozed = !isPaid && isSnoozedNow(t.rentSnoozedUntil, today);
+    const isSnoozed = !isPaid && isSnoozedNow(t.rentSnoozedUntil, t.rentSnoozedCycleStart, is15 ? rs.cycleStart : getCycleStart(rs.dueDay, today), today);
     return !isPaid && !isSnoozed;
   }).length;
 
