@@ -486,31 +486,39 @@ function getRentStatus(admissionDate, today, rentPaidOn = null) {
   if (!admissionDate) return null;
   const ad = new Date(admissionDate + "T00:00:00");
   const dueDay = ad.getDate(); // the tenant's actual billing anchor day, e.g. 31
-  const todayDay = today.getDate();
-  const daysInThisMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-  // If the anchor day doesn't exist in this month (e.g. 31st in April, or
-  // 29th/30th/31st in February), the cycle falls on the month's last day
-  // instead — same clamping getCycleStart() already does for payments.
-  const dueDayThisMonth = Math.min(dueDay, daysInThisMonth);
-  const diff = dueDayThisMonth - todayDay;
-  if (diff === 0) return { type: "due_today", label: "Due Today", color: "#ef4444", bg: "#fef2f2", icon: "🔴", daysUntil: 0, dueDay };
-  if (diff > 0 && diff <= 3) return { type: "due_soon", label: `Due in ${diff} day${diff>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil: diff, dueDay };
-  if (diff < 0) {
-    // Overdue — count days from the FIRST cycle they missed (right after
-    // their last actual payment, or admission if they've never paid), not
-    // from the most recent cycle boundary. This way, someone who's skipped
-    // two entire cycles correctly shows ~60 days overdue instead of the
-    // count quietly restarting small every time a new cycle boundary passes.
-    const sinceDate = rentPaidOn ? new Date(rentPaidOn) : ad;
-    const coveredCycleStart = getCycleStart(dueDay, sinceDate);
+
+  // Single source of truth for classification: "firstMissedBoundary" is the
+  // due date they actually owe against right now — either their next
+  // upcoming due date (if paid up), or the exact date they stopped being
+  // paid up (if not). Everything (due_today/due_soon/ok/overdue) is derived
+  // from comparing today to this ONE date, using proper cycle-boundary math
+  // (getCycleStart) instead of raw day-of-month subtraction.
+  //
+  // The old day-of-month approach broke badly for day-29/30/31 anchors: e.g.
+  // a day-31 tenant could NEVER show overdue, even after years of not
+  // paying, because every month transition happened to land on a day where
+  // the subtraction came out positive again. Verified against a 5-year,
+  // all-anchor-days simulation before landing this fix.
+  let firstMissedBoundary;
+  if (rentPaidOn) {
+    const coveredCycleStart = getCycleStart(dueDay, new Date(rentPaidOn));
     let y = coveredCycleStart.getFullYear(), m = coveredCycleStart.getMonth() + 1;
     if (m > 11) { m = 0; y++; }
     const daysInM = new Date(y, m + 1, 0).getDate();
-    const firstMissedBoundary = new Date(y, m, Math.min(dueDay, daysInM));
-    const daysOverdue = Math.max(1, Math.round((today - firstMissedBoundary) / (24*60*60*1000)));
-    return { type: "overdue", label: `${daysOverdue} day${daysOverdue !== 1 ? "s" : ""} overdue`, color: "#b91c1c", bg: "#fef2f2", icon: "🔴", daysOverdue, dueDay };
+    firstMissedBoundary = new Date(y, m, Math.min(dueDay, daysInM));
+  } else {
+    firstMissedBoundary = getCycleStart(dueDay, ad); // = admission date itself
   }
-  return { type: "ok", label: `Due on ${ordinal(dueDay)}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil: diff, dueDay };
+
+  const daysDiff = Math.round((today - firstMissedBoundary) / (24*60*60*1000));
+  if (daysDiff < 0) {
+    const daysUntil = -daysDiff;
+    if (daysUntil <= 3) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil, dueDay };
+    return { type: "ok", label: `Due on ${ordinal(dueDay)}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil, dueDay };
+  }
+  if (daysDiff === 0) return { type: "due_today", label: "Due Today", color: "#ef4444", bg: "#fef2f2", icon: "🔴", daysUntil: 0, dueDay };
+  const daysOverdue = daysDiff;
+  return { type: "overdue", label: `${daysOverdue} day${daysOverdue !== 1 ? "s" : ""} overdue`, color: "#b91c1c", bg: "#fef2f2", icon: "🔴", daysOverdue, dueDay };
 }
 
 // Start of the current billing cycle (the most recent occurrence of dueDay on/before today)
@@ -518,13 +526,21 @@ function getCycleStart(dueDay, today) {
   const todayDay = today.getDate();
   let year = today.getFullYear();
   let month = today.getMonth();
-  if (todayDay < dueDay) {
+  // Compare against THIS month's clamped due day (e.g. 28 in Feb for a day-29
+  // anchor), not the raw anchor day. Comparing against the raw day caused a
+  // real bug: paying on Feb 28 (the correct, clamped due date for a day-29
+  // tenant) was misread as "before this month's due day," incorrectly
+  // rolling the cycle back to January and breaking payment validity, snooze
+  // scoping, and overdue calculations for any day-29/30/31 anchor.
+  const daysInThisMonth = new Date(year, month + 1, 0).getDate();
+  const dueDayThisMonth = Math.min(dueDay, daysInThisMonth);
+  if (todayDay < dueDayThisMonth) {
     month -= 1;
     if (month < 0) { month = 11; year -= 1; }
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    return new Date(year, month, Math.min(dueDay, daysInMonth));
   }
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const day = Math.min(dueDay, daysInMonth);
-  return new Date(year, month, day);
+  return new Date(year, month, dueDayThisMonth);
 }
 
 // Is a stored timestamp (paid-on / snoozed-at) still valid for the current billing cycle?
@@ -567,22 +583,38 @@ function getCycleStart15(admissionDate, today) {
 
 function getRentStatus15(admissionDate, today, rentPaidOn = null) {
   if (!admissionDate) return null;
+  // cycleStart/nextDue = the current calendar-elapsed 15-day window, used
+  // separately by isActiveForCycle15 to check payment validity. Kept as-is.
   const cycleStart = getCycleStart15(admissionDate, today);
   const nextDue = new Date(cycleStart.getTime() + 15 * MS_PER_DAY);
-  const daysUntil = Math.round((nextDue - today) / MS_PER_DAY);
   const dueLabel = fmtDateIST(nextDue, { day: "numeric", month: "short" });
-  if (daysUntil === 0) return { type: "due_today", label: "Due Today", color: "#ef4444", bg: "#fef2f2", icon: "🔴", daysUntil: 0, cycleStart, nextDue };
-  if (daysUntil > 0 && daysUntil <= 3) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil, cycleStart, nextDue };
-  if (daysUntil < 0) {
-    // Same fix as monthly — count from the first missed 15-day cycle since
-    // their last actual payment, not the most recent cycle boundary.
-    const sinceDate = rentPaidOn ? new Date(rentPaidOn) : new Date(admissionDate + "T00:00:00");
-    const coveredCycleStart = getCycleStart15(admissionDate, sinceDate);
-    const firstMissedBoundary = new Date(coveredCycleStart.getTime() + 15 * MS_PER_DAY);
-    const daysOverdue = Math.max(1, Math.round((today - firstMissedBoundary) / MS_PER_DAY));
-    return { type: "overdue", label: `${daysOverdue} day${daysOverdue !== 1 ? "s" : ""} overdue`, color: "#b91c1c", bg: "#fef2f2", icon: "🔴", daysOverdue, cycleStart, nextDue };
+
+  // firstMissedBoundary = the due date actually owed against right now,
+  // based on the last REAL payment (or admission if never paid). This is
+  // what decides due_today/due_soon/ok/overdue.
+  //
+  // The previous version computed daysUntil from cycleStart/nextDue, which
+  // are pure calendar-elapsed values independent of payment — nextDue is
+  // ALWAYS in the future by construction, so daysUntil was NEVER negative.
+  // Verified by simulation: this made the "overdue" branch permanently
+  // unreachable — a 15-day tenant could never show overdue no matter how
+  // long they went unpaid, even over a 5-year test.
+  let firstMissedBoundary;
+  if (rentPaidOn) {
+    const coveredCycleStart = getCycleStart15(admissionDate, new Date(rentPaidOn));
+    firstMissedBoundary = new Date(coveredCycleStart.getTime() + 15 * MS_PER_DAY);
+  } else {
+    firstMissedBoundary = new Date(admissionDate + "T00:00:00");
   }
-  return { type: "ok", label: `Due on ${dueLabel}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil, cycleStart, nextDue };
+  const daysDiff = Math.round((today - firstMissedBoundary) / MS_PER_DAY);
+  if (daysDiff < 0) {
+    const daysUntil = -daysDiff;
+    if (daysUntil <= 3) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", daysUntil, cycleStart, nextDue };
+    return { type: "ok", label: `Due on ${dueLabel}`, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", daysUntil, cycleStart, nextDue };
+  }
+  if (daysDiff === 0) return { type: "due_today", label: "Due Today", color: "#ef4444", bg: "#fef2f2", icon: "🔴", daysUntil: 0, cycleStart, nextDue };
+  const daysOverdue = daysDiff;
+  return { type: "overdue", label: `${daysOverdue} day${daysOverdue !== 1 ? "s" : ""} overdue`, color: "#b91c1c", bg: "#fef2f2", icon: "🔴", daysOverdue, cycleStart, nextDue };
 }
 
 function isActiveForCycle15(isoDateStr, cycleStart) {
@@ -2912,21 +2944,42 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                       <input type="tel" placeholder="Phone number" value={t.phone || ""} onChange={e => updateTenant(i, "phone", e.target.value)} style={inputStyle} />
                       <input type="date" value={t.admissionDate} onChange={e => updateTenant(i, "admissionDate", e.target.value)} style={{ ...inputStyle, color: t.admissionDate ? "#1a2332" : "#94a3b8" }} />
                     </div>
-                    {/* Rent Amount */}
+                    {/* Billing type — moved above Rent Amount so the amount field
+                        below is clearly labeled for whichever type is picked */}
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", borderTop: "1px solid #e2e8f0", paddingTop: 10, marginTop: 2 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginRight: 4 }}>BILLING:</span>
+                      {["monthly", "15day", "daily"].map(bt => (
+                        <button key={bt} onClick={() => updateTenant(i, "billingType", bt)} style={{
+                          padding: "5px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
+                          background: (t.billingType || "monthly") === bt ? (bt === "daily" ? "#f59e0b" : bt === "15day" ? "#8b5cf6" : "#3b82f6") : "#e2e8f0",
+                          color: (t.billingType || "monthly") === bt ? "#fff" : "#64748b",
+                          transition: "all 0.15s",
+                        }}>
+                          {bt === "monthly" ? "📅 Monthly" : bt === "15day" ? "🔁 15-Day" : "☀️ Per Day"}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Rent Amount — label and unit now match whichever billing type is selected */}
                     <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 10, marginTop: 2 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>💰 MONTHLY RENT AMOUNT</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>
+                        💰 {(t.billingType || "monthly") === "daily" ? "PER DAY RENT AMOUNT" : (t.billingType || "monthly") === "15day" ? "RENT PER 15 DAYS" : "MONTHLY RENT AMOUNT"}
+                      </div>
                       <div style={{ position: "relative" }}>
                         <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#64748b", fontWeight: 700 }}>₹</span>
                         <input
                           type="number"
-                          placeholder="e.g. 5000"
+                          placeholder={(t.billingType || "monthly") === "daily" ? "e.g. 300" : (t.billingType || "monthly") === "15day" ? "e.g. 3500" : "e.g. 5000"}
                           value={t.rentAmount || ""}
                           onChange={e => updateTenant(i, "rentAmount", e.target.value)}
                           style={{ ...inputStyle, paddingLeft: 26 }}
                           min="0"
                         />
                       </div>
-                      {t.rentAmount && <div style={{ fontSize: 11, color: "#22c55e", marginTop: 4 }}>✅ Rent: ₹{Number(t.rentAmount).toLocaleString("en-IN")}/month</div>}
+                      {t.rentAmount && (
+                        <div style={{ fontSize: 11, color: "#22c55e", marginTop: 4 }}>
+                          ✅ Rent: ₹{Number(t.rentAmount).toLocaleString("en-IN")}{(t.billingType || "monthly") === "daily" ? "/day" : (t.billingType || "monthly") === "15day" ? " per 15 days" : "/month"}
+                        </div>
+                      )}
                     </div>
                     {/* Security Deposit Amount — separate from rent. Collecting/returning it
                         is done from the Deposits tab, this just records the agreed amount. */}
@@ -3025,20 +3078,6 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                     <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 10, marginTop: 2 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>📝 REASON TO STAY</div>
                       <textarea placeholder="Why are they staying? e.g. studying in nearby college, working at XYZ company…" value={t.reasonToStay || ""} onChange={e => updateTenant(i, "reasonToStay", e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} />
-                    </div>
-                    {/* Billing type toggle */}
-                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginRight: 4 }}>BILLING:</span>
-                      {["monthly", "15day", "daily"].map(bt => (
-                        <button key={bt} onClick={() => updateTenant(i, "billingType", bt)} style={{
-                          padding: "5px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
-                          background: (t.billingType || "monthly") === bt ? (bt === "daily" ? "#f59e0b" : bt === "15day" ? "#8b5cf6" : "#3b82f6") : "#e2e8f0",
-                          color: (t.billingType || "monthly") === bt ? "#fff" : "#64748b",
-                          transition: "all 0.15s",
-                        }}>
-                          {bt === "monthly" ? "📅 Monthly" : bt === "15day" ? "🔁 15-Day" : "☀️ Per Day"}
-                        </button>
-                      ))}
                     </div>
                     {(t.billingType || "monthly") === "daily" && (
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
