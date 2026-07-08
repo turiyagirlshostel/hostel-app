@@ -786,7 +786,7 @@ function DonutChart({ pct, color, size = 90 }) {
 }
 
 // ── HOME PAGE ─────────────────────────────────────────────────
-function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
+function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, setRoomsInitialStatusFilter }) {
   const [trendPayments, setTrendPayments] = useState(null);
   const [trendDeposits, setTrendDeposits] = useState(null);
   useEffect(() => {
@@ -943,16 +943,18 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
           { icon: "🛏", label: "Total Beds", value: totalBeds, color: "#3b82f6", bg: "#eff6ff" },
           { icon: "👤", label: "Occupied", value: totalOcc, color: "#ef4444", bg: "#fef2f2" },
           { icon: "✅", label: "Available", value: totalFree, color: "#22c55e", bg: "#f0fdf4" },
-          { icon: "🏠", label: "Total Rooms", value: all.length, color: "#8b5cf6", bg: "#f5f3ff" },
-          { icon: "🔴", label: "Full Rooms", value: fullRooms, color: "#f97316", bg: "#fff7ed" },
-          { icon: "🟡", label: "Partial", value: partialRooms, color: "#eab308", bg: "#fefce8" },
-          { icon: "🟢", label: "Empty", value: emptyRooms, color: "#10b981", bg: "#ecfdf5" },
+          { icon: "🏠", label: "Total Rooms", value: all.length, color: "#8b5cf6", bg: "#f5f3ff", statusFilter: "all" },
+          { icon: "🔴", label: "Full Rooms", value: fullRooms, color: "#f97316", bg: "#fff7ed", statusFilter: "full" },
+          { icon: "🟡", label: "Partial", value: partialRooms, color: "#eab308", bg: "#fefce8", statusFilter: "partial" },
+          { icon: "🟢", label: "Empty", value: emptyRooms, color: "#10b981", bg: "#ecfdf5", statusFilter: "empty" },
           { icon: "📊", label: "Occupancy", value: `${occPct}%`, color: "#6366f1", bg: "#eef2ff" },
         ].map(c => (
-          <div key={c.label} style={{ background: c.bg, borderRadius: 12, padding: "16px 18px", border: `1.5px solid ${c.color}22` }}>
+          <div key={c.label}
+            onClick={c.statusFilter ? () => { setRoomsInitialStatusFilter(c.statusFilter); setPage("rooms"); } : undefined}
+            style={{ background: c.bg, borderRadius: 12, padding: "16px 18px", border: `1.5px solid ${c.color}22`, cursor: c.statusFilter ? "pointer" : "default" }}>
             <div style={{ fontSize: 20, marginBottom: 6 }}>{c.icon}</div>
             <div style={{ fontSize: 26, fontWeight: 800, color: c.color, lineHeight: 1 }}>{c.value}</div>
-            <div style={{ fontSize: 11, color: "#64748b", marginTop: 3, fontWeight: 500 }}>{c.label}</div>
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 3, fontWeight: 500 }}>{c.label}{c.statusFilter && " →"}</div>
           </div>
         ))}
       </div>
@@ -977,8 +979,8 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true }) {
           <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 14 }}>
             <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginBottom: 8 }}>ROOM STATUS</div>
             <div style={{ display: "flex", gap: 8 }}>
-              {[{ label: "Full", value: fullRooms, color: "#ef4444", bg: "#fef2f2" }, { label: "Partial", value: partialRooms, color: "#f59e0b", bg: "#fffbeb" }, { label: "Empty", value: emptyRooms, color: "#22c55e", bg: "#f0fdf4" }].map(s => (
-                <div key={s.label} style={{ flex: 1, textAlign: "center", background: s.bg, borderRadius: 8, padding: "8px 4px" }}>
+              {[{ label: "Full", value: fullRooms, color: "#ef4444", bg: "#fef2f2", statusFilter: "full" }, { label: "Partial", value: partialRooms, color: "#f59e0b", bg: "#fffbeb", statusFilter: "partial" }, { label: "Empty", value: emptyRooms, color: "#22c55e", bg: "#f0fdf4", statusFilter: "empty" }].map(s => (
+                <div key={s.label} onClick={() => { setRoomsInitialStatusFilter(s.statusFilter); setPage("rooms"); }} style={{ flex: 1, textAlign: "center", background: s.bg, borderRadius: 8, padding: "8px 4px", cursor: "pointer" }}>
                   <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.value}</div>
                   <div style={{ fontSize: 10, color: "#64748b" }}>{s.label}</div>
                 </div>
@@ -2743,10 +2745,10 @@ function DepositsPage({ rooms, setRooms, today }) {
 }
 
 // ── ROOMS PAGE ────────────────────────────────────────────────
-function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, isManager = true }) {
+function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, isManager = true, initialStatusFilter = "all" }) {
   const [editingRoom, setEditingRoom] = useState(null);
   const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterStatus, setFilterStatus] = useState(initialStatusFilter);
   const [editForm, setEditForm] = useState(null);
   const [addingRoom, setAddingRoom] = useState(false);
   const [newRoomBeds, setNewRoomBeds] = useState(2);
@@ -3605,6 +3607,7 @@ function App() {
   const [rooms, setRooms] = useState(initRooms);
   const [page, setPage] = useState("home");
   const [activeFloor, setActiveFloor] = useState(1);
+  const [roomsInitialStatusFilter, setRoomsInitialStatusFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -3726,8 +3729,8 @@ function App() {
         </div>
       )}
       <Nav page={page} setPage={setPage} allStats={allStats} rentAlerts={rentAlerts} user={user} userRole={userRole} isAdmin={isAdmin} isManager={isManager} />
-      {page === "home" && <HomePage rooms={rooms} setPage={setPage} setActiveFloor={setActiveFloor} today={today} isManager={isManager} />}
-      {page === "rooms" && <RoomsPage rooms={rooms} setRooms={setRooms} activeFloor={activeFloor} setActiveFloor={setActiveFloor} onSaveRoom={handleSaveRoom} isManager={isManager} />}
+      {page === "home" && <HomePage rooms={rooms} setPage={setPage} setActiveFloor={setActiveFloor} today={today} isManager={isManager} setRoomsInitialStatusFilter={setRoomsInitialStatusFilter} />}
+      {page === "rooms" && <RoomsPage rooms={rooms} setRooms={setRooms} activeFloor={activeFloor} setActiveFloor={setActiveFloor} onSaveRoom={handleSaveRoom} isManager={isManager} initialStatusFilter={roomsInitialStatusFilter} />}
       {page === "search" && <TenantSearchPage rooms={rooms} setPage={setPage} setActiveFloor={setActiveFloor} isManager={isManager} isAdmin={isAdmin} />}
       {isManager && page === "rent" && <RentPage rooms={rooms} setRooms={setRooms} today={today} />}
       {isManager && page === "deposits" && <DepositsPage rooms={rooms} setRooms={setRooms} today={today} />}
