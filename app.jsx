@@ -786,6 +786,17 @@ function DonutChart({ pct, color, size = 90 }) {
 }
 
 // ── HOME PAGE ─────────────────────────────────────────────────
+// Tiny, minimal last-month-vs-this-month bar pair — no chart library needed
+function MiniCompareBars({ a, b, color }) {
+  const max = Math.max(1, a, b);
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 28, marginTop: 8 }}>
+      <div style={{ width: 10, height: `${Math.max(4, (a / max) * 28)}px`, background: "#e2e8f0", borderRadius: 2 }} title="Last month" />
+      <div style={{ width: 10, height: `${Math.max(4, (b / max) * 28)}px`, background: color, borderRadius: 2 }} title="This month" />
+    </div>
+  );
+}
+
 function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, setRoomsInitialStatusFilter }) {
   const [trendPayments, setTrendPayments] = useState(null);
   const [trendDeposits, setTrendDeposits] = useState(null);
@@ -916,11 +927,13 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
                 <div style={{ fontSize: 12, fontWeight: 700, color: rentChangePct >= 0 ? "#15803d" : "#dc2626" }}>
                   {rentChangePct >= 0 ? "▲" : "▼"} {Math.abs(rentChangePct)}% <span style={{ color: "#94a3b8", fontWeight: 500 }}>vs ₹{rentLastTotal.toLocaleString("en-IN")} last month</span>
                 </div>
+                <MiniCompareBars a={rentLastTotal} b={rentThisTotal} color="#3b82f6" />
               </div>
               <div>
                 <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>DEPOSITS COLLECTED</div>
                 <div style={{ fontSize: 20, fontWeight: 800, color: "#1a2332" }}>₹{depositsThisTotal.toLocaleString("en-IN")}</div>
                 <div style={{ fontSize: 12, color: "#94a3b8" }}>vs ₹{depositsLastTotal.toLocaleString("en-IN")} last month</div>
+                <MiniCompareBars a={depositsLastTotal} b={depositsThisTotal} color="#8b5cf6" />
               </div>
               <div>
                 <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>DEPOSITS CURRENTLY HELD</div>
@@ -941,8 +954,8 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 18 }}>
         {[
           { icon: "🛏", label: "Total Beds", value: totalBeds, color: "#3b82f6", bg: "#eff6ff" },
-          { icon: "👤", label: "Occupied", value: totalOcc, color: "#ef4444", bg: "#fef2f2" },
-          { icon: "✅", label: "Available", value: totalFree, color: "#22c55e", bg: "#f0fdf4" },
+          { icon: "👤", label: "Occupied", value: totalOcc, color: "#ef4444", bg: "#fef2f2", goTo: "search" },
+          { icon: "✅", label: "Available", value: totalFree, color: "#22c55e", bg: "#f0fdf4", statusFilter: "partial" },
           { icon: "🏠", label: "Total Rooms", value: all.length, color: "#8b5cf6", bg: "#f5f3ff", statusFilter: "all" },
           { icon: "🔴", label: "Full Rooms", value: fullRooms, color: "#f97316", bg: "#fff7ed", statusFilter: "full" },
           { icon: "🟡", label: "Partial", value: partialRooms, color: "#eab308", bg: "#fefce8", statusFilter: "partial" },
@@ -950,14 +963,30 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
           { icon: "📊", label: "Occupancy", value: `${occPct}%`, color: "#6366f1", bg: "#eef2ff" },
         ].map(c => (
           <div key={c.label}
-            onClick={c.statusFilter ? () => { setRoomsInitialStatusFilter(c.statusFilter); setPage("rooms"); } : undefined}
-            style={{ background: c.bg, borderRadius: 12, padding: "16px 18px", border: `1.5px solid ${c.color}22`, cursor: c.statusFilter ? "pointer" : "default" }}>
+            onClick={c.statusFilter ? () => { setRoomsInitialStatusFilter(c.statusFilter); setPage("rooms"); } : c.goTo ? () => setPage(c.goTo) : undefined}
+            style={{ background: c.bg, borderRadius: 12, padding: "16px 18px", border: `1.5px solid ${c.color}22`, cursor: (c.statusFilter || c.goTo) ? "pointer" : "default" }}>
             <div style={{ fontSize: 20, marginBottom: 6 }}>{c.icon}</div>
             <div style={{ fontSize: 26, fontWeight: 800, color: c.color, lineHeight: 1 }}>{c.value}</div>
-            <div style={{ fontSize: 11, color: "#64748b", marginTop: 3, fontWeight: 500 }}>{c.label}{c.statusFilter && " →"}</div>
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 3, fontWeight: 500 }}>{c.label}{(c.statusFilter || c.goTo) && " →"}</div>
           </div>
         ))}
       </div>
+
+      {/* Minimal room-composition bar — visual complement to the numbers above */}
+      {all.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ display: "flex", borderRadius: 10, overflow: "hidden", height: 14, boxShadow: "0 1px 3px #0001" }}>
+            {fullRooms > 0 && <div style={{ width: `${(fullRooms/all.length)*100}%`, background: "#f97316" }} title={`${fullRooms} full`} />}
+            {partialRooms > 0 && <div style={{ width: `${(partialRooms/all.length)*100}%`, background: "#eab308" }} title={`${partialRooms} partial`} />}
+            {emptyRooms > 0 && <div style={{ width: `${(emptyRooms/all.length)*100}%`, background: "#10b981" }} title={`${emptyRooms} empty`} />}
+          </div>
+          <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 11, color: "#64748b" }}>
+            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#f97316", marginRight: 4 }} />Full {fullRooms}</span>
+            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#eab308", marginRight: 4 }} />Partial {partialRooms}</span>
+            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#10b981", marginRight: 4 }} />Empty {emptyRooms}</span>
+          </div>
+        </div>
+      )}
 
       {/* Two col */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 18, marginBottom: 18 }}>
