@@ -1266,6 +1266,7 @@ function TenantHistoryPanel({ paymentsLog, loading, search, setSearch }) {
       mode: p.payment_mode,
       receiptNo: p.receipt_no || generateReceiptNo(p.paid_at),
       cycleNote: "Monthly",
+      note: p.note || "",
     });
   }
 
@@ -1353,6 +1354,7 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
       mode: p.payment_mode,
       receiptNo: p.receipt_no || generateReceiptNo(p.paid_at),
       cycleNote: "Monthly",
+      note: p.note || "",
     });
   }
 
@@ -1472,6 +1474,7 @@ function RentPage({ rooms, setRooms, today }) {
   const [snoozeModal, setSnoozeModal] = useState(null);
   const [snoozeDays, setSnoozeDays] = useState(7);
   const [unsnoozeConfirm, setUnsnoozeConfirm] = useState(null);
+  const [undoPaidConfirm, setUndoPaidConfirm] = useState(null);
   const [paymentNote, setPaymentNote] = useState("");
   const [receiptNoteEdit, setReceiptNoteEdit] = useState("");
   const [historySearch, setHistorySearch] = useState("");
@@ -1538,6 +1541,7 @@ function RentPage({ rooms, setRooms, today }) {
         note: note || null,
       });
     } catch (e) { console.warn("Payment log failed (table may not exist yet):", e); }
+    return { nowIso, receiptNo, finalMode };
   }
   async function undoPaid(t) {
     const receiptNo = t.rentReceiptNo;
@@ -1908,7 +1912,7 @@ function RentPage({ rooms, setRooms, today }) {
                           <button onClick={() => { setReceiptMode(t.rentPaymentMode || "Cash"); setReceiptModeOther(""); setReceiptNoteEdit(t.rentNote || ""); setReceiptModal(t); }} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                             🧾 Receipt
                           </button>
-                          <button disabled={isBusy} onClick={() => undoPaid(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                          <button disabled={isBusy} onClick={() => setUndoPaidConfirm(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
                             Undo Paid
                           </button>
                         </>
@@ -1974,7 +1978,16 @@ function RentPage({ rooms, setRooms, today }) {
                 const mode = paymentMode === "Other" ? paymentModeOther.trim() : paymentMode;
                 const note = paymentNote.trim();
                 setPaidModal(null);
-                await markPaid(t, mode, note);
+                const result = await markPaid(t, mode, note);
+                if (result) {
+                  printReceipt({
+                    ...t,
+                    rentPaidOn: result.nowIso,
+                    rentPaymentMode: result.finalMode,
+                    rentReceiptNo: result.receiptNo,
+                    rentNote: note,
+                  });
+                }
               }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#22c55e", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
                 ✅ Yes, Received!
               </button>
@@ -2092,6 +2105,25 @@ function RentPage({ rooms, setRooms, today }) {
               <button onClick={() => setUnsnoozeConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
               <button onClick={async () => { const t = unsnoozeConfirm; setUnsnoozeConfirm(null); await unsnoozeTenant(t); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
                 Yes, Unsnooze
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Undo Paid confirmation */}
+      {undoPaidConfirm && (
+        <div onClick={() => setUndoPaidConfirm(null)} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 210, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 340 }}>
+            <div style={{ fontSize: 40, textAlign: "center", marginBottom: 8 }}>⚠️</div>
+            <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>Undo this payment?</div>
+            <div style={{ fontSize: 13, color: "#64748b", textAlign: "center", marginBottom: 18 }}>
+              <b>{undoPaidConfirm.name}</b> will show up as due again, and their "Paid" status for this cycle will be removed. This does not delete their permanent payment record in Reports.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setUndoPaidConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+              <button onClick={async () => { const t = undoPaidConfirm; setUndoPaidConfirm(null); await undoPaid(t); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#dc2626", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                Yes, Undo
               </button>
             </div>
           </div>
