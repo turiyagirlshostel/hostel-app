@@ -1358,6 +1358,32 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
     });
   }
 
+  function exportYearCSV() {
+    const rows = monthly.flatMap(m => m.rows);
+    if (rows.length === 0) { alert(`No payments recorded in ${reportYear} to export.`); return; }
+    const headers = ["Date", "Tenant", "Floor", "Room", "Amount", "Payment Mode", "Receipt No", "Note"];
+    const data = rows
+      .slice().sort((a, b) => new Date(a.paid_at) - new Date(b.paid_at))
+      .map(p => [
+        fmtDateIST(new Date(p.paid_at)),
+        p.tenant_name || "",
+        FLOOR_LABELS[p.floor] || `Floor ${p.floor}`,
+        p.room_number,
+        p.amount || 0,
+        p.payment_mode || "",
+        p.receipt_no || "",
+        p.note || "",
+      ]);
+    const csv = [headers, ...data].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `hosteldesk-payments-${reportYear}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div style={{ background: "#fff", borderRadius: 14, padding: 16, marginBottom: 14, boxShadow: "0 1px 4px #0001" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -1365,9 +1391,12 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
           <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>TOTAL COLLECTED IN {reportYear}</div>
           <div style={{ fontSize: 26, fontWeight: 800, color: "#1a2332" }}>₹{yearTotal.toLocaleString("en-IN")}</div>
         </div>
-        <select value={reportYear} onChange={e => { setReportYear(Number(e.target.value)); setExpandedMonth(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontWeight: 700, fontSize: 14 }}>
-          {years.map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={exportYearCSV} style={{ padding: "8px 14px", borderRadius: 8, border: "1.5px solid #86efac", background: "#f0fdf4", color: "#15803d", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>⬇️ Export CSV</button>
+          <select value={reportYear} onChange={e => { setReportYear(Number(e.target.value)); setExpandedMonth(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontWeight: 700, fontSize: 14 }}>
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {monthly.map(m => (
