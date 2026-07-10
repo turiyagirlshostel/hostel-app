@@ -465,6 +465,23 @@ function fmt(dateStr) {
   return fmtDateIST(d, { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// ── PHONE VALIDATION ──────────────────────────────────────────
+// Normalizes an Indian mobile number to its bare 10 digits, stripping
+// spaces/dashes/parens and a leading "+91"/"91"/"0" country/trunk prefix.
+// Returns null if what's left isn't a plausible 10-digit mobile number
+// (this also catches typo'd 9-digit / 11-digit entries).
+function normalizePhone10(raw) {
+  let d = (raw || "").replace(/\D/g, "");
+  if (d.length === 12 && d.startsWith("91")) d = d.slice(2);
+  else if (d.length === 11 && d.startsWith("0")) d = d.slice(1);
+  if (d.length !== 10) return null;
+  if (!/^[6-9]/.test(d)) return null; // Indian mobiles start 6-9
+  return d;
+}
+function isValidPhone10(raw) {
+  return normalizePhone10(raw) !== null;
+}
+
 function ordinal(n) {
   const s = ["th","st","nd","rd"], v = n % 100;
   return n + (s[(v-20)%10] || s[v] || s[0]);
@@ -2873,7 +2890,46 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
   function clearTenant(i) {
     setEditForm(f => ({ ...f, tenants: f.tenants.map((t, idx) => idx === i ? { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "" } : t) }));
   }
+  // Builds a map of bed-index -> problem message for the phone field currently
+  // in the edit form: invalid format (not a real 10-digit mobile number),
+  // or a duplicate of another tenant's phone (either another bed in this same
+  // room, or a tenant already living in a different room).
+  function getPhoneIssues() {
+    const byBed = {};
+    if (!editForm) return byBed;
+    const thisId = editingRoom ? `${editingRoom.floor}-${editingRoom.number}` : null;
+
+    // Phones already in use by tenants in OTHER rooms
+    const otherPhones = new Map();
+    Object.values(rooms).forEach(r => {
+      const rid = `${r.floor}-${r.number}`;
+      if (rid === thisId) return;
+      (r.tenants || []).forEach(t => {
+        if (!t.name || !t.phone) return;
+        const norm = normalizePhone10(t.phone);
+        if (norm && !otherPhones.has(norm)) {
+          otherPhones.set(norm, `${t.name} (${FLOOR_LABELS[r.floor] || "Floor " + r.floor}, Room ${r.number})`);
+        }
+      });
+    });
+
+    const seenInThisForm = new Map();
+    editForm.tenants.forEach((t, i) => {
+      if (!t.name || t.name.trim() === "") return;
+      const raw = (t.phone || "").trim();
+      if (!raw) return;
+      const norm = normalizePhone10(raw);
+      if (!norm) { byBed[i] = "Not a valid 10-digit phone number"; return; }
+      if (otherPhones.has(norm)) { byBed[i] = `Already used by ${otherPhones.get(norm)}`; return; }
+      if (seenInThisForm.has(norm)) { byBed[i] = `Same number as Bed ${seenInThisForm.get(norm) + 1} in this room`; return; }
+      seenInThisForm.set(norm, i);
+    });
+    return byBed;
+  }
+
   function saveEdit() {
+    const phoneIssues = getPhoneIssues();
+    if (Object.keys(phoneIssues).length > 0) return; // blocked — Save button is disabled in this state too
     const beds = Math.max(1, Math.min(20, editForm.beds));
     const updated = { ...editingRoom, beds, label: editForm.label, tenants: makeBeds(beds, editForm.tenants) };
     onSaveRoom(updated);
@@ -2911,6 +2967,8 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
     }
     setCreatingRoom(false);
   }
+
+  const phoneIssues = getPhoneIssues();
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 12px 90px" }}>
@@ -3033,9 +3091,13 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <input placeholder="Tenant name" value={t.name} onChange={e => updateTenant(i, "name", e.target.value)} style={inputStyle} />
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                      <input type="tel" placeholder="Phone number" value={t.phone || ""} onChange={e => updateTenant(i, "phone", e.target.value)} style={inputStyle} />
+                      <input type="tel" placeholder="Phone number" value={t.phone || ""} onChange={e => updateTenant(i, "phone", e.target.value)}
+                        style={{ ...inputStyle, ...(phoneIssues[i] ? { border: "1.5px solid #ef4444", background: "#fef2f2" } : {}) }} />
                       <input type="date" value={t.admissionDate} onChange={e => updateTenant(i, "admissionDate", e.target.value)} style={{ ...inputStyle, color: t.admissionDate ? "#1a2332" : "#94a3b8" }} />
                     </div>
+                    {phoneIssues[i] && (
+                      <div style={{ fontSize: 11, color: "#dc2626", fontWeight: 600, marginTop: -4 }}>⚠️ {phoneIssues[i]}</div>
+                    )}
                     {/* Billing type — moved above Rent Amount so the amount field
                         below is clearly labeled for whichever type is picked */}
                     <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", borderTop: "1px solid #e2e8f0", paddingTop: 10, marginTop: 2 }}>
@@ -3196,9 +3258,15 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
               ))}
             </div>
 
+            {Object.keys(phoneIssues).length > 0 && (
+              <div style={{ background: "#fef2f2", border: "1.5px solid #fecaca", borderRadius: 10, padding: "10px 12px", marginTop: 16, fontSize: 12, color: "#991b1b", fontWeight: 600 }}>
+                ⚠️ Fix the phone number issue{Object.keys(phoneIssues).length > 1 ? "s" : ""} highlighted above before saving.
+              </div>
+            )}
+
             <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
               <button onClick={() => setEditingRoom(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>Cancel</button>
-              <button onClick={saveEdit} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#1a2332", color: "#fff", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>💾 Save Changes</button>
+              <button onClick={saveEdit} disabled={Object.keys(phoneIssues).length > 0} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: Object.keys(phoneIssues).length > 0 ? "#94a3b8" : "#1a2332", color: "#fff", fontWeight: 700, fontSize: 15, cursor: Object.keys(phoneIssues).length > 0 ? "not-allowed" : "pointer" }}>💾 Save Changes</button>
             </div>
             {isManager && (
               <div style={{ textAlign: "center", marginTop: 14 }}>
