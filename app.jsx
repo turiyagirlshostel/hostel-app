@@ -1585,6 +1585,7 @@ function RentPage({ rooms, setRooms, today }) {
         payment_mode: finalMode,
         paid_at: nowIso,
         note: note || null,
+        tenant_id: t.dbId || null,
       });
     } catch (e) { console.warn("Payment log failed (table may not exist yet):", e); }
     return { nowIso, receiptNo, finalMode };
@@ -2373,6 +2374,7 @@ function DepositsPage({ rooms, setRooms, today }) {
         payment_mode: mode,
         collected_at: nowIso,
         collect_note: note || null,
+        tenant_id: t.dbId || null,
       });
       if (t.dbId) {
         try {
