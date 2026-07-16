@@ -27,6 +27,10 @@ function useIsMobile() {
 
 // ── SUPABASE CONFIG ───────────────────────────────────────────
 const SUPABASE_URL = "https://gqdywhlhpqogtlzhcqih.supabase.co";
+// This account can never be demoted or removed through the app — enforced
+// both here (hides the controls) and at the database level (RLS blocks the
+// change even via a direct API call, regardless of what the UI shows).
+const SUPER_ADMIN_EMAIL = "turiya.shubhsahu@gmail.com";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxZHl3aGxocHFvZ3RsemhjcWloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5MjY5NjksImV4cCI6MjA5ODUwMjk2OX0.HHFWg9errPSVdVru1sLZ-Z-xUsyr9q_5YUjPKsGOu9g";
 const HEADERS = {
   "Content-Type": "application/json",
@@ -3930,8 +3934,9 @@ function UsersPage({ currentUser }) {
           {active.map(u => {
             const rc = roleColors[u.role] || roleColors.worker;
             const isMe = u.email === currentUser?.email;
+            const isProtected = u.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
             return (
-              <div key={u.email} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: "1.5px solid #e2e8f0", marginBottom: 8, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <div key={u.email} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: isProtected ? "1.5px solid #93c5fd" : "1.5px solid #e2e8f0", marginBottom: 8, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                 <div style={{ width: 38, height: 38, borderRadius: "50%", background: "#1a2332", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 15, flexShrink: 0 }}>
                   {(u.name || u.email).charAt(0).toUpperCase()}
                 </div>
@@ -3941,7 +3946,10 @@ function UsersPage({ currentUser }) {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ background: rc.bg, color: rc.color, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>{rc.label}</span>
-                  {!isMe && (
+                  {isProtected && (
+                    <span style={{ background: "#eff6ff", color: "#1d4ed8", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>🔒 Protected</span>
+                  )}
+                  {!isMe && !isProtected && (
                     <select value={u.role} onChange={e => changeRole(u.email, e.target.value)} disabled={updating === u.email}
                       style={{ padding: "6px 10px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 12, fontWeight: 600, cursor: "pointer", background: "#f8fafc" }}>
                       <option value="worker">Worker</option>
@@ -3950,7 +3958,7 @@ function UsersPage({ currentUser }) {
                       <option value="rejected">Reject</option>
                     </select>
                   )}
-                  {!isMe && (
+                  {!isMe && !isProtected && (
                     <button onClick={() => removeUser(u.email)} disabled={updating === u.email} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "#fef2f2", color: "#ef4444", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
                       Remove
                     </button>
