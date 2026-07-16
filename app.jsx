@@ -251,6 +251,63 @@ async function loadDeposits() {
   return rows || [];
 }
 
+// Maps a local (camelCase) tenant object to the DB (snake_case) row shape
+// for a given room_id + bed_index. Shared by the insert and update paths in
+// saveRoom so both stay in sync with the schema.
+function tenantToDbFields(t, roomId, bedIndex) {
+  return {
+    room_id: roomId,
+    bed_index: bedIndex,
+    name: t.name || "",
+    phone: t.phone || "",
+    aadhar_id: t.aadharId || "",
+    father_name: t.fatherName || "",
+    father_phone: t.fatherPhone || "",
+    guardian_name: t.guardianName || "",
+    guardian_phone: t.guardianPhone || "",
+    address: t.address || "",
+    city: t.city || "",
+    occupation: t.occupation || "",
+    occupation_place: t.occupationPlace || "",
+    occupation_id: t.occupationId || "",
+    reason_to_stay: t.reasonToStay || "",
+    rent_amount: t.rentAmount || "",
+    admission_date: t.admissionDate || "",
+    checkout_date: t.checkoutDate || "",
+    billing_type: t.billingType || "monthly",
+    rent_paid_on: t.rentPaidOn || null,
+    rent_payment_mode: t.rentPaymentMode || null,
+    rent_receipt_no: t.rentReceiptNo || null,
+    rent_snoozed_at: t.rentSnoozedAt || null,
+    rent_snoozed_until: t.rentSnoozedUntil || null,
+    rent_snoozed_cycle_start: t.rentSnoozedCycleStart || null,
+    rent_note: t.rentNote || null,
+    deposit_amount: t.depositAmount || null,
+    deposit_paid_on: t.depositPaidOn || null,
+    deposit_payment_mode: t.depositPaymentMode || null,
+    deposit_receipt_no: t.depositReceiptNo || null,
+    deposit_returned_on: t.depositReturnedOn || null,
+    deposit_return_amount: t.depositReturnAmount || null,
+    deposit_note: t.depositNote || null,
+  };
+}
+
+// Saves a room's tenants by DIFFING against what's already in the DB per
+// bed, instead of deleting and reinserting everyone on every save.
+//
+// WHY THIS MATTERS: payments and security_deposits are linked to a tenant
+// via their database row id (tenant_id). If we deleted and recreated every
+// tenant row on every save — even ones nobody touched — an unrelated edit
+// (fixing a room label, adding a bed) would silently give every existing
+// tenant in that room a brand-new id, orphaning their entire payment and
+// deposit history from that id. Under RLS, that makes a manager instantly
+// lose visibility into a still-ACTIVE tenant's own payment history, and
+// there's no way to tell it happened without digging into the database.
+//
+// So: same name in the same bed = same person = keep their existing id and
+// just PATCH the fields that changed. Only a genuinely new/replaced tenant
+// (empty bed filled, or a different name in that bed) gets a fresh row —
+// and the old occupant, if any, still gets archived exactly as before.
 async function saveRoom(room, tenants) {
   const id = `${room.floor}-${room.number}`;
   // Update room beds and label
@@ -260,85 +317,105 @@ async function saveRoom(room, tenants) {
     { beds: room.beds, label: room.label },
     { "Prefer": "return=minimal" }
   );
-  // Archive existing tenants before deleting
-  try {
-    const existing = await sbFetch(`/tenants?room_id=eq.${id}&select=*`);
-    if (existing && existing.length > 0) {
-      const changed = existing.filter(ex => {
-        const newT = tenants.find((t, bi) => bi === ex.bed_index);
-        return !newT || !newT.name || newT.name.trim() === "" || newT.name !== ex.name;
-      });
-      if (changed.length > 0) {
-        await archiveTenants(changed.map(t => ({
-          ...t, aadharId: t.aadhar_id, admissionDate: t.admission_date,
-          checkoutDate: t.checkout_date, billingType: t.billing_type,
-          // NOTE: these aliases are required — `t` here is a raw Supabase row
-          // (snake_case), and archiveTenants reads camelCase. Without an
-          // alias for a field, it silently archives as blank.
-          fatherName: t.father_name, fatherPhone: t.father_phone,
-          guardianName: t.guardian_name, guardianPhone: t.guardian_phone,
-          occupationPlace: t.occupation_place, occupationId: t.occupation_id,
-          reasonToStay: t.reason_to_stay, rentAmount: t.rent_amount,
-          depositAmount: t.deposit_amount, depositPaidOn: t.deposit_paid_on,
-          depositPaymentMode: t.deposit_payment_mode, depositReceiptNo: t.deposit_receipt_no,
-          depositReturnedOn: t.deposit_returned_on, depositReturnAmount: t.deposit_return_amount,
-        })), id, room.floor, room.number);
-      }
+
+  const existing = (await sbFetch(`/tenants?room_id=eq.${id}&select=*`)) || [];
+  const existingByBed = {};
+  existing.forEach(e => { existingByBed[e.bed_index] = e; });
+
+  const toArchive = [];   // raw DB rows (snake_case) of people who left this bed
+  const deleteIds = [];   // DB row ids to remove (superseded or cleared beds)
+  const toUpdate = [];    // { id, bedIndex, tenant } — same person, fields changed
+  const toInsert = [];    // { bedIndex, tenant } — new occupant for this bed
+
+  // resultTenants mirrors the input array; we fill in dbId as we go so the
+  // caller can update local state without needing a full reload to see IDs
+  // for tenants that were just added.
+  const resultTenants = tenants.map(t => ({ ...t }));
+
+  tenants.forEach((t, bi) => {
+    const ex = existingByBed[bi];
+    const hasName = !!(t.name && t.name.trim() !== "");
+
+    if (!ex && !hasName) return; // empty bed, nothing stored — no-op
+
+    if (!ex && hasName) {
+      toInsert.push({ bedIndex: bi, tenant: t });
+      return;
     }
-  } catch(e) { console.warn("Archive failed (table may not exist yet):", e); }
-  // Delete all existing tenants for this room first
-  await sbFetch(
-    `/tenants?room_id=eq.${id}`,
-    "DELETE",
-    null,
-    { "Prefer": "return=minimal" }
-  );
-  // Insert updated tenants (only beds with a name filled)
-  const toInsert = tenants
-    .map((t, bi) => ({
-      room_id: id,
-      bed_index: bi,
-      name: t.name || "",
-      phone: t.phone || "",
-      aadhar_id: t.aadharId || "",
-      father_name: t.fatherName || "",
-      father_phone: t.fatherPhone || "",
-      guardian_name: t.guardianName || "",
-      guardian_phone: t.guardianPhone || "",
-      address: t.address || "",
-      city: t.city || "",
-      occupation: t.occupation || "",
-      occupation_place: t.occupationPlace || "",
-      occupation_id: t.occupationId || "",
-      reason_to_stay: t.reasonToStay || "",
-      rent_amount: t.rentAmount || "",
-      admission_date: t.admissionDate || "",
-      checkout_date: t.checkoutDate || "",
-      billing_type: t.billingType || "monthly",
-      rent_paid_on: t.rentPaidOn || null,
-      rent_payment_mode: t.rentPaymentMode || null,
-      rent_receipt_no: t.rentReceiptNo || null,
-      rent_snoozed_at: t.rentSnoozedAt || null,
-      rent_snoozed_until: t.rentSnoozedUntil || null,
-      rent_snoozed_cycle_start: t.rentSnoozedCycleStart || null,
-      rent_note: t.rentNote || null,
-      deposit_amount: t.depositAmount || null,
-      deposit_paid_on: t.depositPaidOn || null,
-      deposit_payment_mode: t.depositPaymentMode || null,
-      deposit_receipt_no: t.depositReceiptNo || null,
-      deposit_returned_on: t.depositReturnedOn || null,
-      deposit_return_amount: t.depositReturnAmount || null,
-      deposit_note: t.depositNote || null,
-    }))
-    .filter(t => t.name.trim() !== "");
-  if (toInsert.length > 0) {
+
+    if (ex && !hasName) {
+      // Bed was cleared — archive the outgoing tenant (if they had a name)
+      // and remove their row.
+      if (ex.name && ex.name.trim() !== "") toArchive.push(ex);
+      deleteIds.push(ex.id);
+      return;
+    }
+
+    // ex exists and the form has a name for this bed
+    if (ex.name !== t.name) {
+      // Different name in the same bed = a new tenant replaced the old one.
+      // Archive the outgoing tenant, delete their row, insert the new one
+      // as a fresh row (so they get their own id and payment history).
+      if (ex.name && ex.name.trim() !== "") toArchive.push(ex);
+      deleteIds.push(ex.id);
+      toInsert.push({ bedIndex: bi, tenant: t });
+    } else {
+      // Same person — update their existing row in place, KEEP their id.
+      toUpdate.push({ id: ex.id, bedIndex: bi, tenant: t });
+      resultTenants[bi].dbId = ex.id;
+    }
+  });
+
+  if (toArchive.length > 0) {
+    try {
+      await archiveTenants(toArchive.map(t => ({
+        ...t, aadharId: t.aadhar_id, admissionDate: t.admission_date,
+        checkoutDate: t.checkout_date, billingType: t.billing_type,
+        // NOTE: these aliases are required — `t` here is a raw Supabase row
+        // (snake_case), and archiveTenants reads camelCase. Without an
+        // alias for a field, it silently archives as blank.
+        fatherName: t.father_name, fatherPhone: t.father_phone,
+        guardianName: t.guardian_name, guardianPhone: t.guardian_phone,
+        occupationPlace: t.occupation_place, occupationId: t.occupation_id,
+        reasonToStay: t.reason_to_stay, rentAmount: t.rent_amount,
+        depositAmount: t.deposit_amount, depositPaidOn: t.deposit_paid_on,
+        depositPaymentMode: t.deposit_payment_mode, depositReceiptNo: t.deposit_receipt_no,
+        depositReturnedOn: t.deposit_returned_on, depositReturnAmount: t.deposit_return_amount,
+      })), id, room.floor, room.number);
+    } catch (e) { console.warn("Archive failed (table may not exist yet):", e); }
+  }
+
+  if (deleteIds.length > 0) {
     await sbFetch(
-      "/tenants",
-      "POST",
-      toInsert,
+      `/tenants?id=in.(${deleteIds.join(",")})`,
+      "DELETE",
+      null,
       { "Prefer": "return=minimal" }
     );
   }
+
+  // Update unchanged-identity tenants in place — id stays the same, so
+  // their existing payments/deposits stay correctly linked.
+  for (const u of toUpdate) {
+    await sbFetch(
+      `/tenants?id=eq.${u.id}`,
+      "PATCH",
+      tenantToDbFields(u.tenant, id, u.bedIndex),
+      { "Prefer": "return=minimal" }
+    );
+  }
+
+  // Insert genuinely new/replacement tenants and capture their new ids.
+  if (toInsert.length > 0) {
+    const payload = toInsert.map(ins => tenantToDbFields(ins.tenant, id, ins.bedIndex));
+    const rows = await sbFetch("/tenants", "POST", payload, { "Prefer": "return=representation" });
+    toInsert.forEach((ins, idx) => {
+      const row = rows && rows[idx];
+      if (row) resultTenants[ins.bedIndex].dbId = row.id;
+    });
+  }
+
+  return resultTenants;
 }
 
 async function archiveTenants(oldTenants, roomId, floor, roomNumber) {
@@ -3818,9 +3895,9 @@ function App() {
   const handleSaveRoom = useCallback(async (updatedRoom) => {
     setSaving(true);
     try {
-      await saveRoom(updatedRoom, updatedRoom.tenants);
+      const savedTenants = await saveRoom(updatedRoom, updatedRoom.tenants);
       const id = `${updatedRoom.floor}-${updatedRoom.number}`;
-      setRooms(prev => ({ ...prev, [id]: updatedRoom }));
+      setRooms(prev => ({ ...prev, [id]: { ...updatedRoom, tenants: savedTenants } }));
     } catch(e) {
       console.error(e);
       alert("Failed to save. Please check your internet connection.");
