@@ -3415,6 +3415,142 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
   );
 }
 
+// ── PAST TENANT MONEY HISTORY (admin-only, shown inside History tab) ──
+// Payments/deposits are matched by name + room + floor + the tenant's own
+// stay window (admission date through when they were archived) rather than
+// name alone — so two different tenants who happen to share a name never
+// get mixed together, as long as they didn't live in the exact same room
+// during overlapping dates (an edge case rare enough not to worry about).
+function PastTenantMoneyPanel({ t }) {
+  const [expanded, setExpanded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [payments, setPayments] = useState(null);
+  const [deposits, setDeposits] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const nameQ = encodeURIComponent(t.name);
+      let paymentsUrl = `/payments?tenant_name=eq.${nameQ}&floor=eq.${t.floor}&room_number=eq.${t.room_number}&order=paid_at.desc`;
+      let depositsUrl = `/security_deposits?tenant_name=eq.${nameQ}&floor=eq.${t.floor}&room_number=eq.${t.room_number}&order=collected_at.desc`;
+      if (t.admission_date) {
+        paymentsUrl += `&paid_at=gte.${t.admission_date}T00:00:00`;
+        depositsUrl += `&collected_at=gte.${t.admission_date}T00:00:00`;
+      }
+      if (t.archived_at) {
+        paymentsUrl += `&paid_at=lte.${t.archived_at}`;
+        depositsUrl += `&collected_at=lte.${t.archived_at}`;
+      }
+      const [p, d] = await Promise.all([
+        sbFetch(paymentsUrl).catch(() => []),
+        sbFetch(depositsUrl).catch(() => []),
+      ]);
+      setPayments(p || []);
+      setDeposits(d || []);
+    } catch (e) {
+      console.warn("Could not load past tenant money history:", e);
+      setPayments([]); setDeposits([]);
+    }
+    setLoading(false);
+  }
+
+  function toggle() {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && payments === null) load();
+  }
+
+  function reprintPayment(p) {
+    generateReceiptPDF({
+      name: p.tenant_name, phone: p.phone, floorLabel: FLOOR_LABELS[p.floor] || "Floor " + p.floor,
+      roomNumber: p.room_number, paidDate: new Date(p.paid_at), amount: p.amount, mode: p.payment_mode,
+      receiptNo: p.receipt_no || generateReceiptNo(p.paid_at), cycleNote: "Monthly", note: p.note || "",
+    });
+  }
+  function reprintDepositCollected(d) {
+    generateReceiptPDF({
+      name: d.tenant_name, phone: d.phone, floorLabel: FLOOR_LABELS[d.floor] || "Floor " + d.floor,
+      roomNumber: d.room_number, paidDate: new Date(d.collected_at), amount: d.amount, mode: d.payment_mode,
+      receiptNo: d.receipt_no, cycleNote: "Security Deposit", note: d.collect_note || "",
+      docTitle: "Security Deposit Receipt", amountLabel: "DEPOSIT COLLECTED", fileTag: "deposit",
+    });
+  }
+  function reprintDepositReturned(d) {
+    generateReceiptPDF({
+      name: d.tenant_name, phone: d.phone, floorLabel: FLOOR_LABELS[d.floor] || "Floor " + d.floor,
+      roomNumber: d.room_number, paidDate: new Date(d.returned_at), amount: d.return_amount, mode: d.return_mode,
+      receiptNo: d.return_receipt_no, cycleNote: "Security Deposit Return", note: d.return_note || "",
+      docTitle: "Deposit Return Receipt", amountLabel: "AMOUNT RETURNED", fileTag: "deposit_return",
+    });
+  }
+
+  const paymentTotal = (payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+
+  return (
+    <div style={{ marginTop: 10, borderTop: "1px solid #f1f5f9", paddingTop: 10 }}>
+      <button onClick={toggle} style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8", background: "#eff6ff", border: "1.5px solid #93c5fd", borderRadius: 8, padding: "6px 12px", cursor: "pointer" }}>
+        {expanded ? "▲ Hide money history" : "💰 View payment & deposit history"}
+      </button>
+      {expanded && (
+        <div style={{ marginTop: 10 }}>
+          {loading && <div style={{ fontSize: 12, color: "#94a3b8" }}>Loading…</div>}
+          {!loading && payments && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>
+                RENT PAYMENTS ({payments.length}){payments.length > 0 ? ` · ₹${paymentTotal.toLocaleString("en-IN")} total` : ""}
+              </div>
+              {payments.length === 0 ? (
+                <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 12 }}>No rent payments on record for this stay.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                  {payments.map(p => (
+                    <div key={p.id || p.receipt_no} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc", borderRadius: 8, padding: "7px 10px" }}>
+                      <div style={{ fontSize: 11, color: "#64748b" }}>{fmtDateIST(new Date(p.paid_at), { day: "numeric", month: "short", year: "numeric" })} · {p.payment_mode || "mode not set"}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: "#15803d" }}>₹{Number(p.amount || 0).toLocaleString("en-IN")}</div>
+                        <button onClick={() => reprintPayment(p)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, cursor: "pointer" }}>🧾</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>SECURITY DEPOSIT ({(deposits || []).length})</div>
+              {(!deposits || deposits.length === 0) ? (
+                <div style={{ fontSize: 12, color: "#94a3b8" }}>No deposit on record for this stay.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {deposits.map(d => (
+                    <div key={d.id} style={{ background: "#f8fafc", borderRadius: 8, padding: "7px 10px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ fontSize: 11, color: "#64748b" }}>Collected {fmtDateIST(new Date(d.collected_at), { day: "numeric", month: "short", year: "numeric" })} · {d.payment_mode}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: "#1d4ed8" }}>₹{Number(d.amount || 0).toLocaleString("en-IN")}</div>
+                          <button onClick={() => reprintDepositCollected(d)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, cursor: "pointer" }}>🧾</button>
+                        </div>
+                      </div>
+                      {d.returned_at ? (
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, paddingTop: 4, borderTop: "1px dashed #e2e8f0" }}>
+                          <div style={{ fontSize: 11, color: "#64748b" }}>Returned {fmtDateIST(new Date(d.returned_at), { day: "numeric", month: "short", year: "numeric" })} · {d.return_mode}{d.return_note ? ` · ${d.return_note}` : ""}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: "#475569" }}>₹{Number(d.return_amount || 0).toLocaleString("en-IN")}</div>
+                            <button onClick={() => reprintDepositReturned(d)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, cursor: "pointer" }}>🧾</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 10, color: "#b45309", fontWeight: 700, marginTop: 4 }}>⚠️ Not yet returned</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── HISTORY PAGE ─────────────────────────────────────────────
 function HistoryPage() {
   const [history, setHistory] = useState([]);
@@ -3624,6 +3760,7 @@ function HistoryPage() {
                   {t.checkout_date && <span>🚪 Left: {fmt(t.checkout_date)}</span>}
                   {t.archived_at && <span>🗃️ Archived: {fmtDateIST(new Date(t.archived_at))}</span>}
                 </div>
+                <PastTenantMoneyPanel t={t} />
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
                 <ContactButtons phone={t.phone} size="small" />
