@@ -381,6 +381,10 @@ async function saveRoom(room, tenants) {
         depositAmount: t.deposit_amount, depositPaidOn: t.deposit_paid_on,
         depositPaymentMode: t.deposit_payment_mode, depositReceiptNo: t.deposit_receipt_no,
         depositReturnedOn: t.deposit_returned_on, depositReturnAmount: t.deposit_return_amount,
+        // Their real database id, captured NOW while it still exists — this
+        // is what lets the admin History tab link straight to their exact
+        // payment/deposit history later, instead of guessing by name/room.
+        tenantId: t.id,
       })), id, room.floor, room.number);
     } catch (e) { console.warn("Archive failed (table may not exist yet):", e); }
   }
@@ -450,6 +454,7 @@ async function archiveTenants(oldTenants, roomId, floor, roomNumber) {
       deposit_returned_on: t.depositReturnedOn || null,
       deposit_return_amount: t.depositReturnAmount || null,
       deposit_note: t.depositNote || null,
+      tenant_id: t.tenantId || null,
       archived_at: new Date().toISOString(),
     }));
   if (toArchive.length === 0) return;
@@ -3430,16 +3435,26 @@ function PastTenantMoneyPanel({ t }) {
   async function load() {
     setLoading(true);
     try {
-      const nameQ = encodeURIComponent(t.name);
-      let paymentsUrl = `/payments?tenant_name=eq.${nameQ}&floor=eq.${t.floor}&room_number=eq.${t.room_number}&order=paid_at.desc`;
-      let depositsUrl = `/security_deposits?tenant_name=eq.${nameQ}&floor=eq.${t.floor}&room_number=eq.${t.room_number}&order=collected_at.desc`;
-      if (t.admission_date) {
-        paymentsUrl += `&paid_at=gte.${t.admission_date}T00:00:00`;
-        depositsUrl += `&collected_at=gte.${t.admission_date}T00:00:00`;
-      }
-      if (t.archived_at) {
-        paymentsUrl += `&paid_at=lte.${t.archived_at}`;
-        depositsUrl += `&collected_at=lte.${t.archived_at}`;
+      let paymentsUrl, depositsUrl;
+      if (t.tenant_id) {
+        // Exact link — captured at the moment this tenant was archived, so
+        // this is a hard match, not a guess. Always preferred when present.
+        paymentsUrl = `/payments?tenant_id=eq.${t.tenant_id}&order=paid_at.desc`;
+        depositsUrl = `/security_deposits?tenant_id=eq.${t.tenant_id}&order=collected_at.desc`;
+      } else {
+        // Fallback for tenants archived before this exact link existed —
+        // same name + room + floor + stay-window matching as before.
+        const nameQ = encodeURIComponent(t.name);
+        paymentsUrl = `/payments?tenant_name=eq.${nameQ}&floor=eq.${t.floor}&room_number=eq.${t.room_number}&order=paid_at.desc`;
+        depositsUrl = `/security_deposits?tenant_name=eq.${nameQ}&floor=eq.${t.floor}&room_number=eq.${t.room_number}&order=collected_at.desc`;
+        if (t.admission_date) {
+          paymentsUrl += `&paid_at=gte.${t.admission_date}T00:00:00`;
+          depositsUrl += `&collected_at=gte.${t.admission_date}T00:00:00`;
+        }
+        if (t.archived_at) {
+          paymentsUrl += `&paid_at=lte.${t.archived_at}`;
+          depositsUrl += `&collected_at=lte.${t.archived_at}`;
+        }
       }
       const [p, d] = await Promise.all([
         sbFetch(paymentsUrl).catch(() => []),
