@@ -1713,7 +1713,9 @@ function RentPage({ rooms, setRooms, today }) {
   function printReceipt(t) {
     const paidDate = t.rentPaidOn ? new Date(t.rentPaidOn) : new Date();
     const receiptNo = t.rentReceiptNo || generateReceiptNo(paidDate.toISOString());
-    const is15 = (t.billingType || "monthly") === "15day";
+    const billingType = t.billingType || "monthly";
+    const is15 = billingType === "15day";
+    const isDaily = billingType === "daily";
     generateReceiptPDF({
       name: t.name,
       phone: t.phone,
@@ -1723,7 +1725,9 @@ function RentPage({ rooms, setRooms, today }) {
       amount: t.rentAmount,
       mode: t.rentPaymentMode,
       receiptNo,
-      cycleNote: is15
+      cycleNote: isDaily
+        ? `Per Day · ${fmtDateIST(paidDate, { day: "numeric", month: "short", year: "numeric" })}`
+        : is15
         ? (t.rentStatus ? `15-Day Cycle · next due ${fmtDateIST(t.rentStatus.nextDue, { day: "numeric", month: "short" })}` : "15-Day Cycle")
         : (t.rentStatus ? `Due on ${t.rentStatus.dueDay} · Monthly` : "Monthly"),
       note: t.rentNote || "",
@@ -1905,21 +1909,50 @@ function RentPage({ rooms, setRooms, today }) {
               const out = t.checkoutDate ? new Date(t.checkoutDate + "T00:00:00") : null;
               const days = inn && out ? Math.max(0, Math.round((out - inn) / 86400000)) : null;
               const isCheckedOut = out && out < today;
+              // "Paid" for a daily tenant means paid for TODAY specifically —
+              // a new day is a new charge, so this checks the calendar date
+              // of their last payment against today's date, not just whether
+              // rentPaidOn is set at all.
+              const isPaidToday = !!t.rentPaidOn && istDateStr(new Date(t.rentPaidOn)) === istDateStr(today);
+              const key = tKey(t);
+              const isBusy = busyKey === key;
               return (
-                <div key={i} style={{ background: "#fff", border: `1.5px solid ${isCheckedOut ? "#e2e8f0" : "#fcd34d"}`, borderLeft: `4px solid ${isCheckedOut ? "#94a3b8" : "#f59e0b"}`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12, opacity: isCheckedOut ? 0.6 : 1 }}>
-                  <div style={{ width: 38, height: 38, borderRadius: "50%", background: "#fffbeb", border: "2px solid #fcd34d", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14, color: "#d97706", flexShrink: 0 }}>
-                    {t.name.charAt(0).toUpperCase()}
+                <div key={i} style={{ background: isPaidToday ? "#f0fdf4" : "#fff", border: `1.5px solid ${isCheckedOut ? "#e2e8f0" : isPaidToday ? "#86efac" : "#fcd34d"}`, borderLeft: `4px solid ${isCheckedOut ? "#94a3b8" : isPaidToday ? "#22c55e" : "#f59e0b"}`, borderRadius: 12, padding: "12px 14px", opacity: isCheckedOut ? 0.6 : 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: "50%", background: isPaidToday ? "#dcfce7" : "#fffbeb", border: `2px solid ${isPaidToday ? "#86efac" : "#fcd34d"}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14, color: isPaidToday ? "#15803d" : "#d97706", flexShrink: 0 }}>
+                      {isPaidToday ? "✅" : t.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{t.name}</div>
+                      <div style={{ fontSize: 11, color: "#64748b" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
+                      <div style={{ fontSize: 11, color: "#94a3b8" }}>{inn ? fmt(t.admissionDate) : "No check-in"}{out ? ` → ${fmt(t.checkoutDate)}` : ""}{days !== null ? ` · ${days} days` : ""}</div>
+                      {t.rentAmount && <div style={{ fontSize: 12, fontWeight: 700, color: "#15803d", marginTop: 2 }}>₹{Number(t.rentAmount).toLocaleString("en-IN")}/day</div>}
+                      {isPaidToday && t.rentPaidOn && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Paid: {fmtDateIST(new Date(t.rentPaidOn))}</div>}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
+                      <span style={{ background: isCheckedOut ? "#f1f5f9" : isPaidToday ? "#dcfce7" : "#fffbeb", color: isCheckedOut ? "#94a3b8" : isPaidToday ? "#15803d" : "#d97706", fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99 }}>{isCheckedOut ? "✅ Out" : isPaidToday ? "✅ Paid Today" : out ? "⏳ Staying" : "☀️"}</span>
+                      <ContactButtons phone={t.phone} size="small" />
+                    </div>
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{t.name}</div>
-                    <div style={{ fontSize: 11, color: "#64748b" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
-                    <div style={{ fontSize: 11, color: "#94a3b8" }}>{inn ? fmt(t.admissionDate) : "No check-in"}{out ? ` → ${fmt(t.checkoutDate)}` : ""}{days !== null ? ` · ${days} days` : ""}</div>
-                    {t.rentAmount && <div style={{ fontSize: 12, fontWeight: 700, color: "#15803d", marginTop: 2 }}>₹{Number(t.rentAmount).toLocaleString("en-IN")} total</div>}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
-                    <span style={{ background: isCheckedOut ? "#f1f5f9" : "#fffbeb", color: isCheckedOut ? "#94a3b8" : "#d97706", fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99 }}>{isCheckedOut ? "✅ Out" : out ? "⏳ Staying" : "☀️"}</span>
-                    <ContactButtons phone={t.phone} size="small" />
-                  </div>
+                  {!isCheckedOut && (
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 10, paddingTop: 10, borderTop: "1px dashed #fcd34d44" }}>
+                      {!isPaidToday && (
+                        <button disabled={isBusy} onClick={() => { setPaymentMode("Cash"); setPaymentModeOther(""); setPaymentNote(""); setPaidModal(t); }} style={{ padding: "7px 14px", borderRadius: 10, border: "none", background: "#22c55e", color: "#fff", fontWeight: 800, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                          ✅ Mark Paid Today
+                        </button>
+                      )}
+                      {isPaidToday && (
+                        <>
+                          <button onClick={() => { setReceiptMode(t.rentPaymentMode || "Cash"); setReceiptModeOther(""); setReceiptNoteEdit(t.rentNote || ""); setReceiptModal(t); }} style={{ padding: "6px 12px", borderRadius: 10, border: "1.5px solid #93c5fd", background: "#eff6ff", color: "#1d4ed8", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                            🧾 Receipt
+                          </button>
+                          <button disabled={isBusy} onClick={() => setUndoPaidConfirm(t)} style={{ padding: "6px 12px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                            Undo
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
