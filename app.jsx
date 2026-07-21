@@ -1826,7 +1826,7 @@ function RentPage({ rooms, setRooms, today }) {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 3px" }}>💰 Rent Due</h1>
           <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
-            {fmtDateIST(today, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            {fmtDateIST(new Date(), { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -1883,7 +1883,7 @@ function RentPage({ rooms, setRooms, today }) {
       {/* This calendar month's collections — resets automatically on the 1st, no manual reset needed */}
       <div style={{ background: "#eff6ff", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #93c5fd", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>COLLECTED IN {fmtDateIST(today, { month: "long" }).toUpperCase()}</div>
+          <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>COLLECTED IN {fmtDateIST(new Date(), { month: "long" }).toUpperCase()}</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#1d4ed8" }}>₹{collectedThisMonth.toLocaleString("en-IN")}</div>
         </div>
         <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "right" }}>{paidThisCalendarMonth.length} payment{paidThisCalendarMonth.length !== 1 ? "s" : ""} since 1st<br/>auto-resets next month</div>
@@ -1913,7 +1913,7 @@ function RentPage({ rooms, setRooms, today }) {
               // a new day is a new charge, so this checks the calendar date
               // of their last payment against today's date, not just whether
               // rentPaidOn is set at all.
-              const isPaidToday = !!t.rentPaidOn && istDateStr(new Date(t.rentPaidOn)) === istDateStr(today);
+              const isPaidToday = !!t.rentPaidOn && istDateStr(new Date(t.rentPaidOn)) === istDateStr();
               const key = tKey(t);
               const isBusy = busyKey === key;
               return (
