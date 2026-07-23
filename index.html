@@ -10,23 +10,47 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <style>
     html, body, #root { height: 100%; margin: 0; padding: 0; }
+
+    /* Splash screen — shown instantly from the HTML itself (before React
+       or even the JS bundles finish loading), so there's never a blank
+       white flash on open. #splash is removed the moment App() mounts. */
+    #splash {
+      position: fixed; inset: 0; z-index: 9999;
+      background: linear-gradient(135deg, #1a2332 0%, #2d3f55 100%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
+      color: #fff;
+    }
+    #splash .icon { font-size: 52px; margin-bottom: 10px; }
+    #splash .title { font-weight: 800; font-size: 22px; letter-spacing: -0.5px; }
+    #splash .sub { font-size: 13px; color: #94a3b8; margin-top: 6px; }
+    #splash .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #60a5fa;
+      display: inline-block; margin-top: 18px; animation: pulse 1.1s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
   </style>
 </head>
 <body>
-  <div id="root"></div>
-
+  <div id="root">
+    <div id="splash">
+      <div class="icon">🏨</div>
+      <div class="title">Turiya Hostel</div>
+      <div class="sub">HostelDesk</div>
+      <span class="dot"></span>
+    </div>
+  </div>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
   <script type="text/babel" src="app.jsx"></script>
-
   <script type="text/babel">
+    // ReactDOM replaces the entire #root contents (splash included) the
+    // instant App() renders — no manual removal needed.
     const root = ReactDOM.createRoot(document.getElementById("root"));
     root.render(<App />);
   </script>
-
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
