@@ -11,47 +11,109 @@
   <style>
     html, body, #root { height: 100%; margin: 0; padding: 0; }
 
-    /* Splash screen — shown instantly from the HTML itself (before React
-       or even the JS bundles finish loading), so there's never a blank
-       white flash on open. #splash is removed the moment App() mounts. */
+    /* ── Splash screen: shown instantly from HTML/CSS alone, before React,
+       React-DOM, or Babel have even finished downloading — so there is
+       never a blank white flash on load. #splash is removed automatically
+       once #root has content (see script at bottom of body). ── */
     #splash {
-      position: fixed; inset: 0; z-index: 9999;
-      background: linear-gradient(135deg, #1a2332 0%, #2d3f55 100%);
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
-      color: #fff;
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background: linear-gradient(160deg, #1a2332 0%, #202f45 55%, #26344a 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+      transition: opacity 0.35s ease;
     }
-    #splash .icon { font-size: 52px; margin-bottom: 10px; }
-    #splash .title { font-weight: 800; font-size: 22px; letter-spacing: -0.5px; }
-    #splash .sub { font-size: 13px; color: #94a3b8; margin-top: 6px; }
-    #splash .dot {
-      width: 8px; height: 8px; border-radius: 50%; background: #60a5fa;
-      display: inline-block; margin-top: 18px; animation: pulse 1.1s ease-in-out infinite;
+    #splash .splash-icon {
+      font-size: 46px;
+      line-height: 1;
+      filter: drop-shadow(0 4px 10px rgba(0,0,0,0.35));
     }
-    @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
+    #splash .splash-title {
+      color: #f5f0e6;
+      font-weight: 800;
+      font-size: 20px;
+      letter-spacing: 0.2px;
+    }
+    #splash .splash-sub {
+      color: #b8860b;
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    #splash .splash-bar {
+      margin-top: 6px;
+      width: 120px;
+      height: 3px;
+      border-radius: 99px;
+      background: rgba(255,255,255,0.12);
+      overflow: hidden;
+    }
+    #splash .splash-bar::after {
+      content: "";
+      display: block;
+      width: 40%;
+      height: 100%;
+      border-radius: 99px;
+      background: #b8860b;
+      animation: splashSlide 1.1s ease-in-out infinite;
+    }
+    @keyframes splashSlide {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(350%); }
+    }
+    #splash.splash-hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
-  <div id="root">
-    <div id="splash">
-      <div class="icon">🏨</div>
-      <div class="title">Turiya Hostel</div>
-      <div class="sub">HostelDesk</div>
-      <span class="dot"></span>
-    </div>
+  <div id="root"></div>
+
+  <div id="splash">
+    <div class="splash-icon">🏨</div>
+    <div class="splash-title">Turiya Hostel</div>
+    <div class="splash-sub">HostelDesk</div>
+    <div class="splash-bar"></div>
   </div>
+
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script type="text/babel" src="app.jsx"></script>
   <script type="text/babel">
-    // ReactDOM replaces the entire #root contents (splash included) the
-    // instant App() renders — no manual removal needed.
     const root = ReactDOM.createRoot(document.getElementById("root"));
     root.render(<App />);
   </script>
   <script>
+    // Remove the splash as soon as React has actually painted something into
+    // #root — not on a fixed timer — so it never disappears too early (blank
+    // gap) or lingers too long. Falls back to a hard timeout just in case.
+    (function () {
+      const splash = document.getElementById("splash");
+      const rootEl = document.getElementById("root");
+      function hideSplash() {
+        if (!splash) return;
+        splash.classList.add("splash-hidden");
+        setTimeout(() => splash.remove(), 400);
+      }
+      const observer = new MutationObserver(() => {
+        if (rootEl.childNodes.length > 0) {
+          hideSplash();
+          observer.disconnect();
+        }
+      });
+      observer.observe(rootEl, { childList: true, subtree: true });
+      setTimeout(hideSplash, 6000); // safety fallback
+    })();
+
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
         navigator.serviceWorker.register("service-worker.js").catch(() => {});
