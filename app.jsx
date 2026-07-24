@@ -474,6 +474,11 @@ const FLOORS = [0, 1, 2, 3, 4];
 const ROOM_COUNTS = { 0: 3, 1: 40, 2: 40, 3: 40, 4: 4 };
 const FLOOR_LABELS = { 0: "Ground", 1: "Floor 1", 2: "Floor 2", 3: "Floor 3", 4: "Floor 4" };
 
+// ── HOSTEL CONTACT DETAILS — printed on every receipt PDF's header ──
+const HOSTEL_ADDRESS = "Gate No. 3, Medical Hub, Turiya Square, Plot No. 73, Scheme No. 166/3, Super Corridor, In Front of TCS, Tigaria Badshah, Indore, MP 453112";
+const HOSTEL_PHONE = "9111157157";
+const HOSTEL_LANDMARK = "5 min walk from TCS Gate No. 3";
+
 function makeBeds(count, existing = []) {
   return Array.from({ length: count }, (_, i) => existing[i] || { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "", rentPaidOn: "", rentSnoozedAt: "", rentSnoozedUntil: "", rentSnoozedCycleStart: "", rentPaymentMode: "", rentReceiptNo: "", rentNote: "", depositAmount: "", depositPaidOn: "", depositPaymentMode: "", depositReceiptNo: "", depositReturnedOn: "", depositReturnAmount: "", depositNote: "" });
 }
@@ -566,6 +571,14 @@ function normalizePhone10(raw) {
 }
 function isValidPhone10(raw) {
   return normalizePhone10(raw) !== null;
+}
+
+// Used directly in phone input onChange handlers — strips anything that
+// isn't a digit and hard-caps at 10 characters, so it's physically
+// impossible to type an 11th digit or a stray letter/symbol into a phone
+// field, instead of only catching it later at save time.
+function sanitizePhoneInput(raw) {
+  return (raw || "").replace(/\D/g, "").slice(0, 10);
 }
 
 function ordinal(n) {
@@ -737,6 +750,12 @@ const inputStyle = {
 function ContactButtons({ phone, size = "normal" }) {
   if (!phone) return null;
   const clean = phone.replace(/\D/g, "");
+  // WhatsApp needs a country code to resolve the number correctly — a bare
+  // 10-digit number with no prefix gets misread (defaults toward a wrong
+  // country's numbering). Reuse the same normalizer used for validation so
+  // "9876543210" and "+91 98765 43210" both resolve to the same wa.me link.
+  const normalized = normalizePhone10(phone);
+  const waNumber = normalized ? `91${normalized}` : clean;
   const isSmall = size === "small";
   return (
     <div style={{ display: "flex", gap: 6 }} onClick={e => e.stopPropagation()}>
@@ -756,7 +775,7 @@ function ContactButtons({ phone, size = "normal" }) {
         📞 {isSmall ? "" : "Call"}
       </a>
       <a
-        href={`https://wa.me/${clean}`}
+        href={`https://wa.me/${waNumber}`}
         target="_blank"
         rel="noopener noreferrer"
         style={{
@@ -1549,12 +1568,36 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
   const { jsPDF } = window.jspdf || {};
   if (!jsPDF) { alert("PDF library still loading — try again in a moment."); return; }
 
-  const doc = new jsPDF({ unit: "pt", format: [320, 480] });
-  doc.setFont("helvetica", "bold"); doc.setFontSize(16);
-  doc.text("Turiya Hostel", 24, 40);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(120);
-  doc.text(`${docTitle} · No. ${receiptNo}`, 24, 56);
+  const PAGE_W = 320, MARGIN = 24, CONTENT_W = PAGE_W - MARGIN * 2;
+  // Deposit receipts get a blue accent, rent receipts get green — matches the
+  // same color language used for "held/blue" vs "paid/green" in the app itself.
+  const isDeposit = /deposit/i.test(docTitle);
+  const accent = isDeposit ? [29, 78, 216] : [21, 128, 61];
+  const accentTint = isDeposit ? [239, 246, 255] : [240, 253, 244];
 
+  const doc = new jsPDF({ unit: "pt", format: [PAGE_W, 540] });
+
+  // ── HEADER BAND — solid navy letterhead with hostel name, doc type/receipt
+  // no. in gold, and the hostel's address/phone/landmark underneath, so the
+  // receipt is self-identifying even if it's printed loose or forwarded. ──
+  doc.setFillColor(26, 35, 50);
+  doc.rect(0, 0, PAGE_W, 100, "F");
+
+  doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.setTextColor(255, 255, 255);
+  doc.text("Turiya Hostel", MARGIN, 28);
+
+  doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(224, 168, 62);
+  doc.text(`${docTitle.toUpperCase()} · NO. ${receiptNo}`, MARGIN, 41);
+
+  doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(198, 208, 224);
+  const addrLines = doc.splitTextToSize(HOSTEL_ADDRESS, CONTENT_W);
+  doc.text(addrLines, MARGIN, 53);
+  const afterAddrY = 53 + (addrLines.length - 1) * 8.5;
+
+  doc.setFontSize(7); doc.setTextColor(224, 168, 62);
+  doc.text(`Ph: ${HOSTEL_PHONE}   |   ${HOSTEL_LANDMARK}`, MARGIN, afterAddrY + 12);
+
+  // ── BODY ROWS ──
   const rows = [
     ["Tenant", name],
     ["Room", `${floorLabel} - Room ${roomNumber}`],
@@ -1568,23 +1611,38 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
   // actually provided — this used to be conflated into one confusing "Note"
   // field that mixed billing-cycle text with anything the staff typed in.
   if (note && note.trim()) rows.push(["Notes", note.trim()]);
-  let y = 84;
-  doc.setFontSize(11);
+
+  let y = 128;
+  doc.setFontSize(10.5);
   rows.forEach(([label, value]) => {
-    doc.setTextColor(100); doc.text(label, 24, y);
-    doc.setTextColor(20);
+    doc.setFont("helvetica", "normal"); doc.setTextColor(100, 116, 139); doc.text(label, MARGIN, y);
+    doc.setFont("helvetica", "bold"); doc.setTextColor(15, 23, 42);
     const valueLines = doc.splitTextToSize(String(value), 170);
-    doc.text(valueLines, 296, y, { align: "right" });
-    doc.setDrawColor(230); doc.line(24, y + 8 + (valueLines.length - 1) * 12, 296, y + 8 + (valueLines.length - 1) * 12);
+    doc.text(valueLines, PAGE_W - MARGIN, y, { align: "right" });
+    doc.setDrawColor(226, 232, 240); doc.setLineWidth(0.75);
+    doc.line(MARGIN, y + 8 + (valueLines.length - 1) * 12, PAGE_W - MARGIN, y + 8 + (valueLines.length - 1) * 12);
     y += 26 + (valueLines.length - 1) * 12;
   });
 
-  doc.setFontSize(9); doc.setTextColor(150); doc.text(amountLabel, 160, y + 24, { align: "center" });
-  doc.setFont("helvetica", "bold"); doc.setFontSize(26); doc.setTextColor(21, 128, 61);
-  doc.text(`Rs ${Number(amount || 0).toLocaleString("en-IN")}`, 160, y + 52, { align: "center" });
+  // ── AMOUNT BLOCK — rounded, tinted box so the amount is the clear visual
+  // focal point instead of just another line of text. ──
+  const boxY = y + 14, boxH = 74;
+  doc.setFillColor(...accentTint);
+  doc.roundedRect(MARGIN, boxY, CONTENT_W, boxH, 10, 10, "F");
+  doc.setDrawColor(...accent); doc.setLineWidth(1.2);
+  doc.roundedRect(MARGIN, boxY, CONTENT_W, boxH, 10, 10, "S");
 
-  doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(160);
-  doc.text("This is a system-generated receipt. Keep it for your records.", 160, y + 90, { align: "center" });
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(100, 116, 139);
+  doc.text(amountLabel, PAGE_W / 2, boxY + 20, { align: "center" });
+  doc.setFont("helvetica", "bold"); doc.setFontSize(26); doc.setTextColor(...accent);
+  doc.text(`Rs ${Number(amount || 0).toLocaleString("en-IN")}`, PAGE_W / 2, boxY + 52, { align: "center" });
+
+  // ── FOOTER ──
+  const footerY = boxY + boxH + 26;
+  doc.setDrawColor(226, 232, 240); doc.setLineWidth(0.75);
+  doc.line(MARGIN, footerY - 14, PAGE_W - MARGIN, footerY - 14);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(150, 160, 175);
+  doc.text("This is a system-generated receipt. Keep it for your records.", PAGE_W / 2, footerY, { align: "center" });
 
   const fileDate = istDateStr(paidDate);
   const safeName = (name || "tenant").trim().replace(/[^a-zA-Z0-9]+/g, "_");
@@ -2987,6 +3045,15 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
   const [confirmDeleteRoom, setConfirmDeleteRoom] = useState(null);
   const [deletingRoom, setDeletingRoom] = useState(false);
 
+  // ── MOVE TENANT — lets a tenant switch rooms/beds without losing their
+  // payment/deposit history (keeps their same database row id, just repoints
+  // room_id + bed_index). Only available for already-saved tenants (dbId set).
+  const [moveModal, setMoveModal] = useState(null); // { tenant, fromRoomId, fromBedIndex, fromLabel }
+  const [moveFloor, setMoveFloor] = useState(activeFloor);
+  const [moveRoomId, setMoveRoomId] = useState(null);
+  const [moveBedIndex, setMoveBedIndex] = useState(null);
+  const [moving, setMoving] = useState(false);
+
   const floorRooms = Object.values(rooms).filter(r => r.floor === activeFloor).sort((a, b) => a.number - b.number);
   const filtered = floorRooms.filter(r => {
     const matchSearch = !search || String(r.number).includes(search) || r.label.toLowerCase().includes(search.toLowerCase()) || r.tenants.some(t => t.name.toLowerCase().includes(search.toLowerCase()) || (t.phone || "").includes(search));
@@ -3058,6 +3125,68 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
     const updated = { ...editingRoom, beds, label: editForm.label, tenants: makeBeds(beds, editForm.tenants) };
     onSaveRoom(updated);
     setEditingRoom(null);
+  }
+
+  // Opens the move picker for bed `i` in the room currently being edited.
+  // Uses whatever is currently in the edit form (so any in-progress edits to
+  // this tenant travel with them into their new room), but only allows the
+  // move once the tenant already has a real database row (dbId) — a tenant
+  // who hasn't been saved yet has nothing to repoint.
+  function openMoveModal(i) {
+    const tenant = editForm.tenants[i];
+    if (!tenant.dbId) {
+      alert("Save this room first before moving this tenant — they don't have a saved record yet.");
+      return;
+    }
+    setMoveModal({
+      tenant,
+      fromRoomId: `${editingRoom.floor}-${editingRoom.number}`,
+      fromBedIndex: i,
+      fromLabel: `${FLOOR_LABELS[editingRoom.floor] || "Floor " + editingRoom.floor} · Room ${editingRoom.number} · Bed ${i + 1}`,
+    });
+    setMoveFloor(editingRoom.floor);
+    setMoveRoomId(null);
+    setMoveBedIndex(null);
+  }
+
+  async function performMove() {
+    if (!moveModal || !moveRoomId || moveBedIndex === null) return;
+    const { tenant, fromRoomId, fromBedIndex } = moveModal;
+    const targetRoom = rooms[moveRoomId];
+    if (!targetRoom) return;
+    // Safety check — bed must still be empty (state may have changed since opening the picker)
+    if (targetRoom.tenants[moveBedIndex] && targetRoom.tenants[moveBedIndex].name && targetRoom.tenants[moveBedIndex].name.trim() !== "") {
+      alert("That bed just got occupied — pick a different bed.");
+      return;
+    }
+    setMoving(true);
+    try {
+      await sbFetch(`/tenants?id=eq.${tenant.dbId}`, "PATCH", tenantToDbFields(tenant, moveRoomId, moveBedIndex), { "Prefer": "return=minimal" });
+      const blankBed = { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "" };
+      setRooms(prev => {
+        const next = { ...prev };
+        // Vacate the old bed
+        const fromRoom = next[fromRoomId];
+        if (fromRoom) {
+          const newFromTenants = fromRoom.tenants.map((tn, bi) => bi === fromBedIndex ? { ...blankBed } : tn);
+          next[fromRoomId] = { ...fromRoom, tenants: newFromTenants };
+        }
+        // Occupy the new bed with the full tenant record (same dbId, so
+        // history stays linked)
+        const toRoom = next[moveRoomId];
+        if (toRoom) {
+          const newToTenants = toRoom.tenants.map((tn, bi) => bi === moveBedIndex ? { ...tenant } : tn);
+          next[moveRoomId] = { ...toRoom, tenants: newToTenants };
+        }
+        return next;
+      });
+      setMoveModal(null);
+      setEditingRoom(null); // the room being edited just changed underneath it — close to avoid stale state
+    } catch (e) {
+      console.error(e);
+      alert("Failed to move tenant. Please check your internet connection and try again.");
+    }
+    setMoving(false);
   }
 
   async function handleDeleteRoom(room) {
@@ -3210,12 +3339,15 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                 <div key={i} style={{ background: "#f8fafc", borderRadius: 12, padding: "14px", border: "1.5px solid #e2e8f0" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>🛏 Bed {i + 1}</span>
-                    {t.name && <button onClick={() => clearTenant(i)} style={{ fontSize: 11, color: "#ef4444", background: "#fef2f2", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontWeight: 600 }}>Clear</button>}
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {t.name && t.dbId && <button onClick={() => openMoveModal(i)} style={{ fontSize: 11, color: "#1d4ed8", background: "#eff6ff", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontWeight: 600 }}>↔️ Move</button>}
+                      {t.name && <button onClick={() => clearTenant(i)} style={{ fontSize: 11, color: "#ef4444", background: "#fef2f2", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontWeight: 600 }}>Clear</button>}
+                    </div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <input placeholder="Tenant name" value={t.name} onChange={e => updateTenant(i, "name", e.target.value)} style={inputStyle} />
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                      <input type="tel" placeholder="Phone number" value={t.phone || ""} onChange={e => updateTenant(i, "phone", e.target.value)}
+                      <input type="tel" inputMode="numeric" maxLength={10} placeholder="Phone number" value={t.phone || ""} onChange={e => updateTenant(i, "phone", sanitizePhoneInput(e.target.value))}
                         style={{ ...inputStyle, ...(phoneIssues[i] ? { border: "1.5px solid #ef4444", background: "#fef2f2" } : {}) }} />
                       <input type="date" value={t.admissionDate} onChange={e => updateTenant(i, "admissionDate", e.target.value)} style={{ ...inputStyle, color: t.admissionDate ? "#1a2332" : "#94a3b8" }} />
                     </div>
@@ -3292,7 +3424,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>FATHER'S DETAILS</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         <input placeholder="Father's name" value={t.fatherName || ""} onChange={e => updateTenant(i, "fatherName", e.target.value)} style={inputStyle} />
-                        <input type="tel" placeholder="Father's phone" value={t.fatherPhone || ""} onChange={e => updateTenant(i, "fatherPhone", e.target.value)} style={inputStyle} />
+                        <input type="tel" inputMode="numeric" maxLength={10} placeholder="Father's phone" value={t.fatherPhone || ""} onChange={e => updateTenant(i, "fatherPhone", sanitizePhoneInput(e.target.value))} style={inputStyle} />
                       </div>
                       {t.fatherPhone && (
                         <div style={{ marginTop: 6 }}>
@@ -3305,7 +3437,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>GUARDIAN'S DETAILS <span style={{ fontWeight: 400, color: "#94a3b8" }}>(if different from father)</span></div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         <input placeholder="Guardian's name" value={t.guardianName || ""} onChange={e => updateTenant(i, "guardianName", e.target.value)} style={inputStyle} />
-                        <input type="tel" placeholder="Guardian's phone" value={t.guardianPhone || ""} onChange={e => updateTenant(i, "guardianPhone", e.target.value)} style={inputStyle} />
+                        <input type="tel" inputMode="numeric" maxLength={10} placeholder="Guardian's phone" value={t.guardianPhone || ""} onChange={e => updateTenant(i, "guardianPhone", sanitizePhoneInput(e.target.value))} style={inputStyle} />
                       </div>
                       {t.guardianPhone && (
                         <div style={{ marginTop: 6 }}>
@@ -3424,6 +3556,91 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
           </div>
         </div>
       )}
+
+      {/* Move tenant modal — pick a floor, then a room, then an empty bed */}
+      {moveModal && (() => {
+        const floorRoomsForMove = Object.values(rooms).filter(r => r.floor === moveFloor && `${r.floor}-${r.number}` !== moveModal.fromRoomId).sort((a, b) => a.number - b.number);
+        const targetRoom = moveRoomId ? rooms[moveRoomId] : null;
+        return (
+          <div onClick={() => !moving && setMoveModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 250 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 480, maxHeight: "88vh", overflowY: "auto", boxShadow: "0 -8px 40px #0004" }}>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#e2e8f0" }} /></div>
+              <div style={{ textAlign: "center", marginBottom: 18 }}>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>↔️</div>
+                <div style={{ fontWeight: 800, fontSize: 19, color: "#1a2332" }}>Move {moveModal.tenant.name}</div>
+                <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Currently: {moveModal.fromLabel}</div>
+              </div>
+
+              <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 8 }}>1. CHOOSE FLOOR</label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(80px, 1fr))", gap: 8, marginBottom: 18 }}>
+                {FLOORS.map(f => (
+                  <button key={f} onClick={() => { setMoveFloor(f); setMoveRoomId(null); setMoveBedIndex(null); }} style={{
+                    padding: "9px 6px", borderRadius: 10, border: "none",
+                    background: moveFloor === f ? "#1a2332" : "#f1f5f9",
+                    color: moveFloor === f ? "#fff" : "#64748b",
+                    fontWeight: 700, fontSize: 13, cursor: "pointer",
+                  }}>{FLOOR_LABELS[f]}</button>
+                ))}
+              </div>
+
+              <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 8 }}>2. CHOOSE ROOM</label>
+              {floorRoomsForMove.length === 0 ? (
+                <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 18 }}>No other rooms on this floor.</div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))", gap: 8, marginBottom: 18, maxHeight: 160, overflowY: "auto" }}>
+                  {floorRoomsForMove.map(r => {
+                    const rid = `${r.floor}-${r.number}`;
+                    const freeBeds = r.tenants.filter(t => !t.name || t.name.trim() === "").length;
+                    const disabled = freeBeds === 0;
+                    return (
+                      <button key={rid} disabled={disabled} onClick={() => { setMoveRoomId(rid); setMoveBedIndex(null); }} style={{
+                        padding: "8px 6px", borderRadius: 10,
+                        border: moveRoomId === rid ? "2px solid #1d4ed8" : "1.5px solid #e2e8f0",
+                        background: disabled ? "#f8fafc" : moveRoomId === rid ? "#eff6ff" : "#fff",
+                        color: disabled ? "#cbd5e1" : "#1a2332",
+                        fontWeight: 700, fontSize: 13, cursor: disabled ? "not-allowed" : "pointer", textAlign: "center",
+                      }}>
+                        R{r.number}
+                        <div style={{ fontSize: 10, fontWeight: 500, color: disabled ? "#cbd5e1" : "#64748b" }}>{disabled ? "Full" : `${freeBeds} free`}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {targetRoom && (
+                <>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 8 }}>3. CHOOSE BED</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(70px, 1fr))", gap: 8, marginBottom: 18 }}>
+                    {targetRoom.tenants.map((tn, bi) => {
+                      const occupied = tn.name && tn.name.trim() !== "";
+                      return (
+                        <button key={bi} disabled={occupied} onClick={() => setMoveBedIndex(bi)} style={{
+                          padding: "10px 4px", borderRadius: 10,
+                          border: moveBedIndex === bi ? "2px solid #1d4ed8" : "1.5px solid #e2e8f0",
+                          background: occupied ? "#f8fafc" : moveBedIndex === bi ? "#eff6ff" : "#fff",
+                          color: occupied ? "#cbd5e1" : "#1a2332",
+                          fontWeight: 700, fontSize: 12, cursor: occupied ? "not-allowed" : "pointer",
+                        }}>
+                          Bed {bi + 1}
+                          <div style={{ fontSize: 9, fontWeight: 500 }}>{occupied ? tn.name : "Empty"}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                <button disabled={moving} onClick={() => setMoveModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 700, fontSize: 15, cursor: moving ? "default" : "pointer" }}>Cancel</button>
+                <button disabled={moving || !moveRoomId || moveBedIndex === null} onClick={performMove} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: (!moveRoomId || moveBedIndex === null) ? "#94a3b8" : "#1d4ed8", color: "#fff", fontWeight: 800, fontSize: 15, cursor: (moving || !moveRoomId || moveBedIndex === null) ? "not-allowed" : "pointer" }}>
+                  {moving ? "Moving…" : "↔️ Confirm Move"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Delete Room confirmation modal */}
       {confirmDeleteRoom && (() => {
