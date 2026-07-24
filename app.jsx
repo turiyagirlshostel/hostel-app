@@ -728,8 +728,8 @@ function isActiveForCycle15(isoDateStr, cycleStart) {
 }
 
 const inputStyle = {
-  width: "100%", padding: "9px 11px", borderRadius: 8,
-  border: "1.5px solid #e2e8f0", fontSize: 14, outline: "none",
+  width: "100%", padding: "11px 12px", borderRadius: 8,
+  border: "1.5px solid #e2e8f0", fontSize: 15, outline: "none",
   boxSizing: "border-box", background: "#f8fafc",
 };
 
@@ -796,7 +796,7 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
     return (
       <>
         {/* Top mini header */}
-        <div style={{ background: "#1a2332", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 8px #0005", padding: "0 16px", height: 50, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ background: "#1a2332", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 8px #0005", padding: "0 16px", height: 54, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 20 }}>🏨</span>
             <span style={{ fontWeight: 800, fontSize: 16 }}>Turiya Hostel</span>
@@ -804,25 +804,25 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ display: "flex", gap: 10, fontSize: 12, color: "#94a3b8" }}>
               <span>🛏 <b style={{ color: "#e2e8f0" }}>{allStats.totalBeds}</b></span>
-              <span>👤 <b style={{ color: "#60a5fa" }}>{allStats.totalOcc}</b></span>
+              <span>👤 <b style={{ color: "#e0a83e" }}>{allStats.totalOcc}</b></span>
             </div>
-            <button onClick={supabaseAuth.signOut} style={{ background: "#ffffff18", border: "none", borderRadius: 8, padding: "4px 10px", color: "#94a3b8", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>Sign out</button>
+            <button onClick={supabaseAuth.signOut} style={{ background: "#ffffff18", border: "none", borderRadius: 8, padding: "6px 12px", color: "#e2e8f0", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Sign out</button>
           </div>
         </div>
         {/* Bottom tab bar */}
         <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#1a2332", zIndex: 50, display: "flex", borderTop: "1px solid #ffffff15", paddingBottom: "env(safe-area-inset-bottom)" }}>
           {NAV_ITEMS.map(n => (
             <button key={n.id} onClick={() => setPage(n.id)} style={{
-              flex: 1, padding: "8px 4px 10px", border: "none", background: "none",
-              color: page === n.id ? "#60a5fa" : "#64748b",
+              flex: 1, padding: "9px 4px 11px", border: "none", background: "none",
+              color: page === n.id ? "#e0a83e" : "#94a3b8",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
               cursor: "pointer", position: "relative",
-              borderTop: page === n.id ? "2px solid #60a5fa" : "2px solid transparent",
+              borderTop: page === n.id ? "2.5px solid #e0a83e" : "2.5px solid transparent",
             }}>
-              <span style={{ fontSize: 18 }}>{n.icon}</span>
-              <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.2px" }}>{n.label}</span>
+              <span style={{ fontSize: 19 }}>{n.icon}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.2px" }}>{n.label}</span>
               {n.id === "rent" && rentAlerts > 0 && (
-                <span style={{ position: "absolute", top: 4, right: "50%", transform: "translateX(8px)", background: "#ef4444", color: "#fff", fontSize: 9, fontWeight: 700, borderRadius: 99, minWidth: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{rentAlerts}</span>
+                <span style={{ position: "absolute", top: 4, right: "50%", transform: "translateX(10px)", background: "#ef4444", color: "#fff", fontSize: 9, fontWeight: 700, borderRadius: 99, minWidth: 15, height: 15, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{rentAlerts}</span>
               )}
             </button>
           ))}
@@ -834,20 +834,20 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
   // Desktop nav
   return (
     <div style={{ background: "#1a2332", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 12px #0005" }}>
-      <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", height: 60, padding: "0 20px", gap: 4 }}>
+      <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", height: 64, padding: "0 20px", gap: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 28 }}>
           <span style={{ fontSize: 22 }}>🏨</span>
-          <span style={{ fontWeight: 800, fontSize: 17, letterSpacing: "-0.5px" }}>HostelDesk</span>
+          <span style={{ fontWeight: 800, fontSize: 18, letterSpacing: "-0.5px" }}>HostelDesk</span>
         </div>
         <div style={{ display: "flex", gap: 2, flex: 1 }}>
           {NAV_ITEMS.map(n => (
             <button key={n.id} onClick={() => setPage(n.id)} style={{
-              padding: "6px 14px", borderRadius: 8, border: "none",
+              padding: "8px 16px", borderRadius: 8, border: "none",
               background: page === n.id ? "#ffffff18" : "transparent",
-              color: page === n.id ? "#fff" : "#94a3b8",
-              fontWeight: 600, fontSize: 13, cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 5,
-              borderBottom: page === n.id ? "2px solid #60a5fa" : "2px solid transparent",
+              color: page === n.id ? "#fff" : "#c2ccda",
+              fontWeight: 700, fontSize: 14, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+              borderBottom: page === n.id ? "2.5px solid #e0a83e" : "2.5px solid transparent",
               position: "relative",
             }}>
               <span>{n.icon}</span>
@@ -858,14 +858,14 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
             </button>
           ))}
         </div>
-        <div style={{ display: "flex", gap: 14, fontSize: 12, color: "#94a3b8", flexShrink: 0, alignItems: "center" }}>
-          <span>🛏 <b style={{ color: "#e2e8f0" }}>{allStats.totalBeds}</b></span>
-          <span>👤 <b style={{ color: "#60a5fa" }}>{allStats.totalOcc}</b></span>
+        <div style={{ display: "flex", gap: 16, fontSize: 13, color: "#c2ccda", flexShrink: 0, alignItems: "center" }}>
+          <span>🛏 <b style={{ color: "#fff" }}>{allStats.totalBeds}</b></span>
+          <span>👤 <b style={{ color: "#e0a83e" }}>{allStats.totalOcc}</b></span>
           <span>✅ <b style={{ color: "#4ade80" }}>{allStats.totalBeds - allStats.totalOcc}</b></span>
           {user && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8, paddingLeft: 12, borderLeft: "1px solid #ffffff22" }}>
-              <span style={{ fontSize: 11, background: role === "admin" ? "#3b82f6" : role === "manager" ? "#22c55e" : "#f59e0b", color: "#fff", padding: "2px 8px", borderRadius: 99, fontWeight: 700, textTransform: "capitalize" }}>{role}</span>
-              <button onClick={supabaseAuth.signOut} style={{ background: "#ffffff18", border: "none", borderRadius: 8, padding: "5px 12px", color: "#94a3b8", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Sign out</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 8, paddingLeft: 14, borderLeft: "1px solid #ffffff22" }}>
+              <span style={{ fontSize: 11.5, background: role === "admin" ? "#1d4ed8" : role === "manager" ? "#15803d" : "#b8860b", color: "#fff", padding: "3px 10px", borderRadius: 99, fontWeight: 700, textTransform: "capitalize" }}>{role}</span>
+              <button onClick={supabaseAuth.signOut} style={{ background: "#ffffff18", border: "none", borderRadius: 8, padding: "6px 14px", color: "#e2e8f0", fontSize: 13, cursor: "pointer", fontWeight: 700 }}>Sign out</button>
             </div>
           )}
         </div>
@@ -929,7 +929,7 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
     };
   });
 
-  const barColors = ["#3b82f6", "#8b5cf6", "#f59e0b", "#10b981", "#ec4899"];
+  const barColors = ["#1d4ed8", "#7c3aed", "#b8860b", "#0d9488", "#be185d"];
 
   // Rent alerts for home — only UNPAID tenants should ever trigger an alert,
   // and both Monthly and 15-Day billing types need checking (Daily has no cycle).
@@ -978,8 +978,8 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 12px 90px" }}>
       <div style={{ marginBottom: 16 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800, margin: "0 0 3px", letterSpacing: "-0.5px" }}>Dashboard</h1>
-        <p style={{ margin: 0, color: "#64748b", fontSize: 14 }}>3 floors · {all.length} rooms · {totalBeds} beds total</p>
+        <h1 style={{ fontSize: 25, fontWeight: 800, margin: "0 0 3px", letterSpacing: "-0.5px", color: "#1a2332" }}>Dashboard</h1>
+        <p style={{ margin: 0, color: "#64748b", fontSize: 14.5 }}>3 floors · {all.length} rooms · {totalBeds} beds total</p>
       </div>
 
       {/* Rent alerts banner (managers/admins only) */}
@@ -1030,13 +1030,13 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
                 <div style={{ fontSize: 12, fontWeight: 700, color: rentChangePct >= 0 ? "#15803d" : "#dc2626" }}>
                   {rentChangePct >= 0 ? "▲" : "▼"} {Math.abs(rentChangePct)}% <span style={{ color: "#94a3b8", fontWeight: 500 }}>vs ₹{rentLastTotal.toLocaleString("en-IN")} last month</span>
                 </div>
-                <MiniCompareBars a={rentLastTotal} b={rentThisTotal} color="#3b82f6" />
+                <MiniCompareBars a={rentLastTotal} b={rentThisTotal} color="#1d4ed8" />
               </div>
               <div>
                 <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>DEPOSITS COLLECTED</div>
                 <div style={{ fontSize: 20, fontWeight: 800, color: "#1a2332" }}>₹{depositsThisTotal.toLocaleString("en-IN")}</div>
                 <div style={{ fontSize: 12, color: "#94a3b8" }}>vs ₹{depositsLastTotal.toLocaleString("en-IN")} last month</div>
-                <MiniCompareBars a={depositsLastTotal} b={depositsThisTotal} color="#8b5cf6" />
+                <MiniCompareBars a={depositsLastTotal} b={depositsThisTotal} color="#7c3aed" />
               </div>
               <div>
                 <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>DEPOSITS CURRENTLY HELD</div>
@@ -1056,21 +1056,21 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
       {/* KPI Grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 18 }}>
         {[
-          { icon: "🛏", label: "Total Beds", value: totalBeds, color: "#3b82f6", bg: "#eff6ff" },
+          { icon: "🛏", label: "Total Beds", value: totalBeds, color: "#1d4ed8", bg: "#eff6ff" },
           { icon: "👤", label: "Occupied", value: totalOcc, color: "#ef4444", bg: "#fef2f2", goTo: "search" },
-          { icon: "✅", label: "Available", value: totalFree, color: "#22c55e", bg: "#f0fdf4", statusFilter: "partial" },
-          { icon: "🏠", label: "Total Rooms", value: all.length, color: "#8b5cf6", bg: "#f5f3ff", statusFilter: "all" },
-          { icon: "🔴", label: "Full Rooms", value: fullRooms, color: "#f97316", bg: "#fff7ed", statusFilter: "full" },
-          { icon: "🟡", label: "Partial", value: partialRooms, color: "#eab308", bg: "#fefce8", statusFilter: "partial" },
-          { icon: "🟢", label: "Empty", value: emptyRooms, color: "#10b981", bg: "#ecfdf5", statusFilter: "empty" },
-          { icon: "📊", label: "Occupancy", value: `${occPct}%`, color: "#6366f1", bg: "#eef2ff" },
+          { icon: "✅", label: "Available", value: totalFree, color: "#15803d", bg: "#f0fdf4", statusFilter: "partial" },
+          { icon: "🏠", label: "Total Rooms", value: all.length, color: "#7c3aed", bg: "#f5f3ff", statusFilter: "all" },
+          { icon: "🔴", label: "Full Rooms", value: fullRooms, color: "#c2410c", bg: "#fff7ed", statusFilter: "full" },
+          { icon: "🟡", label: "Partial", value: partialRooms, color: "#b8860b", bg: "#fefce8", statusFilter: "partial" },
+          { icon: "🟢", label: "Empty", value: emptyRooms, color: "#0d9488", bg: "#ecfdf5", statusFilter: "empty" },
+          { icon: "📊", label: "Occupancy", value: `${occPct}%`, color: "#4338ca", bg: "#eef2ff" },
         ].map(c => (
           <div key={c.label}
             onClick={c.statusFilter ? () => { setRoomsInitialStatusFilter(c.statusFilter); setPage("rooms"); } : c.goTo ? () => setPage(c.goTo) : undefined}
-            style={{ background: c.bg, borderRadius: 12, padding: "16px 18px", border: `1.5px solid ${c.color}22`, cursor: (c.statusFilter || c.goTo) ? "pointer" : "default" }}>
+            style={{ background: c.bg, borderRadius: 12, padding: "16px 18px", border: `1.5px solid ${c.color}33`, cursor: (c.statusFilter || c.goTo) ? "pointer" : "default" }}>
             <div style={{ fontSize: 20, marginBottom: 6 }}>{c.icon}</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: c.color, lineHeight: 1 }}>{c.value}</div>
-            <div style={{ fontSize: 11, color: "#64748b", marginTop: 3, fontWeight: 500 }}>{c.label}{(c.statusFilter || c.goTo) && " →"}</div>
+            <div style={{ fontSize: 27, fontWeight: 800, color: c.color, lineHeight: 1 }}>{c.value}</div>
+            <div style={{ fontSize: 12, color: "#475569", marginTop: 4, fontWeight: 600 }}>{c.label}{(c.statusFilter || c.goTo) && " →"}</div>
           </div>
         ))}
       </div>
@@ -1079,14 +1079,14 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
       {all.length > 0 && (
         <div style={{ marginBottom: 18 }}>
           <div style={{ display: "flex", borderRadius: 10, overflow: "hidden", height: 14, boxShadow: "0 1px 3px #0001" }}>
-            {fullRooms > 0 && <div style={{ width: `${(fullRooms/all.length)*100}%`, background: "#f97316" }} title={`${fullRooms} full`} />}
-            {partialRooms > 0 && <div style={{ width: `${(partialRooms/all.length)*100}%`, background: "#eab308" }} title={`${partialRooms} partial`} />}
-            {emptyRooms > 0 && <div style={{ width: `${(emptyRooms/all.length)*100}%`, background: "#10b981" }} title={`${emptyRooms} empty`} />}
+            {fullRooms > 0 && <div style={{ width: `${(fullRooms/all.length)*100}%`, background: "#c2410c" }} title={`${fullRooms} full`} />}
+            {partialRooms > 0 && <div style={{ width: `${(partialRooms/all.length)*100}%`, background: "#b8860b" }} title={`${partialRooms} partial`} />}
+            {emptyRooms > 0 && <div style={{ width: `${(emptyRooms/all.length)*100}%`, background: "#0d9488" }} title={`${emptyRooms} empty`} />}
           </div>
-          <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 11, color: "#64748b" }}>
-            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#f97316", marginRight: 4 }} />Full {fullRooms}</span>
-            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#eab308", marginRight: 4 }} />Partial {partialRooms}</span>
-            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#10b981", marginRight: 4 }} />Empty {emptyRooms}</span>
+          <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 12, color: "#475569", flexWrap: "wrap" }}>
+            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#c2410c", marginRight: 4 }} />Full {fullRooms}</span>
+            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#b8860b", marginRight: 4 }} />Partial {partialRooms}</span>
+            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#0d9488", marginRight: 4 }} />Empty {emptyRooms}</span>
           </div>
         </div>
       )}
@@ -1097,12 +1097,12 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
         <div style={{ background: "#fff", borderRadius: 14, padding: "20px", boxShadow: "0 1px 4px #0001" }}>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16 }}>Overall Occupancy</div>
           <div style={{ display: "flex", alignItems: "center", gap: 24, marginBottom: 16 }}>
-            <DonutChart pct={occPct} color="#3b82f6" size={90} />
+            <DonutChart pct={occPct} color="#1d4ed8" size={90} />
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {[{ label: "Occupied", value: totalOcc, color: "#ef4444" }, { label: "Free", value: totalFree, color: "#22c55e" }].map(item => (
+              {[{ label: "Occupied", value: totalOcc, color: "#ef4444" }, { label: "Free", value: totalFree, color: "#15803d" }].map(item => (
                 <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <div style={{ width: 9, height: 9, borderRadius: "50%", background: item.color }} />
-                  <span style={{ fontSize: 13, color: "#374151" }}>{item.label}</span>
+                  <span style={{ fontSize: 13.5, color: "#374151" }}>{item.label}</span>
                   <span style={{ fontWeight: 700, marginLeft: "auto", paddingLeft: 12, fontSize: 15 }}>{item.value}</span>
                 </div>
               ))}
@@ -1154,7 +1154,7 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
             onMouseLeave={e => { e.currentTarget.style.borderColor = "#f1f5f9"; e.currentTarget.style.boxShadow = "0 1px 4px #0001"; }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
               <span style={{ fontWeight: 700, fontSize: 15 }}>{FLOOR_LABELS[fs.f]}</span>
-              <span style={{ fontSize: 10, background: barColors[idx] + "22", color: barColors[idx], fontWeight: 600, padding: "2px 8px", borderRadius: 99 }}>{fs.beds > 0 ? Math.round((fs.occ/fs.beds)*100) : 0}%</span>
+              <span style={{ fontSize: 10, background: barColors[idx] + "22", color: barColors[idx], fontWeight: 700, padding: "2px 8px", borderRadius: 99 }}>{fs.beds > 0 ? Math.round((fs.occ/fs.beds)*100) : 0}%</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
               {[{ label: "Beds", value: fs.beds }, { label: "Occupied", value: fs.occ }, { label: "Full rooms", value: fs.full }, { label: "Empty", value: fs.empty }].map(item => (
@@ -1172,7 +1172,7 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
       <div style={{ background: "#fff", borderRadius: 14, padding: "20px", boxShadow: "0 1px 4px #0001" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>Recent Admissions</div>
-          <button onClick={() => setPage("search")} style={{ fontSize: 13, color: "#3b82f6", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Search all →</button>
+          <button onClick={() => setPage("search")} style={{ fontSize: 13, color: "#1d4ed8", background: "none", border: "none", cursor: "pointer", fontWeight: 700 }}>Search all →</button>
         </div>
         {recentTenants.length === 0
           ? <div style={{ textAlign: "center", padding: "24px 0", color: "#94a3b8", fontSize: 14 }}>No tenants yet. Add from the Rooms page.</div>
@@ -1294,7 +1294,7 @@ function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true, is
           {results.map((t, i) => (
             <div key={i} onClick={() => { setActiveFloor(t.floor); setPage("rooms"); }}
               style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: "1.5px solid #e2e8f0", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, transition: "border-color 0.15s, box-shadow 0.15s" }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.boxShadow = "0 2px 12px #0002"; }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#1d4ed8"; e.currentTarget.style.boxShadow = "0 2px 12px #0002"; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.boxShadow = "none"; }}>
               <div style={{ width: 42, height: 42, borderRadius: "50%", background: "#1a2332", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 17, flexShrink: 0 }}>
                 {t.name.charAt(0).toUpperCase()}
@@ -1322,7 +1322,7 @@ function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true, is
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
                 {t.phone && <div style={{ fontSize: 12, color: "#64748b" }}>{t.phone}</div>}
                 <ContactButtons phone={t.phone} />
-                <div style={{ fontSize: 11, color: "#3b82f6", fontWeight: 500 }}>View room →</div>
+                <div style={{ fontSize: 11, color: "#1d4ed8", fontWeight: 600 }}>View room →</div>
               </div>
             </div>
           ))}
@@ -1508,7 +1508,7 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
               style={{ display: "flex", alignItems: "center", gap: 10, cursor: m.count > 0 ? "pointer" : "default", padding: "4px 6px", borderRadius: 8, background: expandedMonth === m.monthIndex ? "#f8fafc" : "transparent" }}>
               <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#64748b" }}>{m.name}</div>
               <div style={{ flex: 1, background: "#f1f5f9", borderRadius: 6, height: 20, position: "relative", overflow: "hidden" }}>
-                <div style={{ width: `${(m.total / maxMonth) * 100}%`, background: m.total > 0 ? "#3b82f6" : "transparent", height: "100%", borderRadius: 6, transition: "width 0.3s" }} />
+                <div style={{ width: `${(m.total / maxMonth) * 100}%`, background: m.total > 0 ? "#1d4ed8" : "transparent", height: "100%", borderRadius: 6, transition: "width 0.3s" }} />
               </div>
               <div style={{ width: 90, textAlign: "right", fontSize: 12.5, fontWeight: 700, color: "#1a2332" }}>₹{m.total.toLocaleString("en-IN")}</div>
               <div style={{ width: 22, textAlign: "right", fontSize: 10.5, color: "#94a3b8" }}>{m.count}</div>
@@ -1542,6 +1542,9 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
 // ── RENT DUE PAGE ─────────────────────────────────────────────
 // Shared receipt PDF generator — used both for a freshly-marked-paid tenant
 // and for reprinting any past payment from the permanent ledger in Reports.
+// NOTE: visual redesign of this receipt is planned as the NEXT step (after
+// the color-theme pass) — left functionally identical for now so nothing
+// about payment records/printing changes mid-theme-update.
 function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amount, mode, receiptNo, cycleNote, note = "", docTitle = "Rent Receipt", amountLabel = "AMOUNT PAID", fileTag = "" }) {
   const { jsPDF } = window.jspdf || {};
   if (!jsPDF) { alert("PDF library still loading — try again in a moment."); return; }
@@ -1854,8 +1857,8 @@ function RentPage({ rooms, setRooms, today }) {
           { label: "Due Today", value: dueToday.length, color: "#ef4444", bg: "#fef2f2", icon: "🔴", id: "due_today" },
           { label: "Due Soon", value: dueSoon.length, color: "#f59e0b", bg: "#fffbeb", icon: "🟡", id: "due_soon" },
           { label: "Upcoming", value: ok.length, color: "#22c55e", bg: "#f0fdf4", icon: "🟢", id: "ok" },
-          { label: "Paid ✅", value: paidList.length, color: "#3b82f6", bg: "#eff6ff", icon: "✅", id: "paid" },
-          { label: "Snoozed", value: snoozedList.length, color: "#8b5cf6", bg: "#f5f3ff", icon: "⏭️", id: "snoozed" },
+          { label: "Paid ✅", value: paidList.length, color: "#1d4ed8", bg: "#eff6ff", icon: "✅", id: "paid" },
+          { label: "Snoozed", value: snoozedList.length, color: "#7c3aed", bg: "#f5f3ff", icon: "⏭️", id: "snoozed" },
         ].map(c => (
           <div key={c.id} onClick={() => setFilter(filter === c.id ? "all" : c.id)}
             style={{ background: filter === c.id ? c.color : c.bg, borderRadius: 12, padding: "12px 10px", cursor: "pointer", border: `2px solid ${filter === c.id ? c.color : c.color + "44"}`, transition: "all 0.15s", textAlign: "center" }}>
@@ -3119,7 +3122,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
       )}
 
       <div style={{ display: "flex", gap: 10, marginBottom: 14, overflowX: "auto", paddingBottom: 4, WebkitOverflowScrolling: "touch" }}>
-        {[{ label: "Total Beds", value: stats.total, color: "#3b82f6" }, { label: "Occupied", value: stats.occupied, color: "#ef4444" }, { label: "Available", value: stats.total - stats.occupied, color: "#22c55e" }, { label: "Full", value: stats.full, color: "#f97316" }, { label: "Partial", value: stats.partial, color: "#eab308" }, { label: "Empty", value: stats.empty, color: "#64748b" }].map(s => (
+        {[{ label: "Total Beds", value: stats.total, color: "#1d4ed8" }, { label: "Occupied", value: stats.occupied, color: "#ef4444" }, { label: "Available", value: stats.total - stats.occupied, color: "#22c55e" }, { label: "Full", value: stats.full, color: "#f97316" }, { label: "Partial", value: stats.partial, color: "#eab308" }, { label: "Empty", value: stats.empty, color: "#64748b" }].map(s => (
           <div key={s.label} style={{ background: "#fff", borderRadius: 10, padding: "10px 14px", boxShadow: "0 1px 3px #0001", flexShrink: 0, minWidth: 90 }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
             <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 500 }}>{s.label}</div>
@@ -3226,7 +3229,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                       {["monthly", "15day", "daily"].map(bt => (
                         <button key={bt} onClick={() => updateTenant(i, "billingType", bt)} style={{
                           padding: "5px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
-                          background: (t.billingType || "monthly") === bt ? (bt === "daily" ? "#f59e0b" : bt === "15day" ? "#8b5cf6" : "#3b82f6") : "#e2e8f0",
+                          background: (t.billingType || "monthly") === bt ? (bt === "daily" ? "#f59e0b" : bt === "15day" ? "#7c3aed" : "#1d4ed8") : "#e2e8f0",
                           color: (t.billingType || "monthly") === bt ? "#fff" : "#64748b",
                           transition: "all 0.15s",
                         }}>
@@ -3343,7 +3346,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                         </div>
                         <div>
                           <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 3 }}>
-                            {t.occupation === "job" ? "Company name" : t.occupation === "college" ? "College name" : t.occupation === "school" ? "School name" : "Place name"}
+                            {t.occupation === "job" ? "Company name" : t.occupation === "college" ? "College name" : "Place name"}
                           </div>
                           <input placeholder={t.occupation === "job" ? "Company name" : t.occupation === "college" ? "College name" : "Place name"} value={t.occupationPlace || ""} onChange={e => updateTenant(i, "occupationPlace", e.target.value)} style={inputStyle} />
                         </div>
@@ -3711,7 +3714,7 @@ function HistoryPage() {
               <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 5 }}>TO DATE</div>
               <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ ...inputStyle, color: dateTo ? "#1a2332" : "#94a3b8" }} />
             </div>
-            <button onClick={exportDateRange} style={{ padding: "9px 20px", background: "#3b82f6", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+            <button onClick={exportDateRange} style={{ padding: "9px 20px", background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
               📥 Download {dateFrom && dateTo ? `(${dateFiltered.length} records)` : ""}
             </button>
           </div>
@@ -3788,7 +3791,7 @@ function HistoryPage() {
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{t.name}</div>
                 <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
                   Floor {t.floor} · Room {t.room_number} · Bed {(t.bed_index||0)+1}
-                  {t.aadhar_id ? <span style={{ background: "#eff6ff", color: "#3b82f6", borderRadius: 4, padding: "1px 6px", marginLeft: 6, fontSize: 10, fontWeight: 700 }}>🪪 {t.aadhar_id}</span> : ""}
+                  {t.aadhar_id ? <span style={{ background: "#eff6ff", color: "#1d4ed8", borderRadius: 4, padding: "1px 6px", marginLeft: 6, fontSize: 10, fontWeight: 700 }}>🪪 {t.aadhar_id}</span> : ""}
                 </div>
                 {t.father_name && (
                   <div style={{ fontSize: 11, color: "#374151", marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -3839,26 +3842,26 @@ function HistoryPage() {
 function LoginPage() {
   const [loading, setLoading] = useState(false);
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #1a2332 0%, #2d3f55 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Inter', system-ui, sans-serif" }}>
-      <div style={{ background: "#fff", borderRadius: 24, padding: "40px 32px", width: "100%", maxWidth: 400, boxShadow: "0 32px 80px #0006", textAlign: "center" }}>
-        <div style={{ fontSize: 52, marginBottom: 8 }}>🏨</div>
-        <div style={{ fontWeight: 800, fontSize: 26, color: "#1a2332", marginBottom: 4 }}>Turiya Hostel</div>
-        <div style={{ fontSize: 14, color: "#94a3b8", marginBottom: 32 }}>Management System</div>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(160deg, #1a2332 0%, #202f45 55%, #26344a 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <div style={{ background: "#fff", borderRadius: 24, padding: "44px 32px", width: "100%", maxWidth: 400, boxShadow: "0 32px 80px #0006", textAlign: "center" }}>
+        <div style={{ fontSize: 54, marginBottom: 8 }}>🏨</div>
+        <div style={{ fontWeight: 800, fontSize: 27, color: "#1a2332", marginBottom: 4 }}>Turiya Hostel</div>
+        <div style={{ fontSize: 13, color: "#b8860b", fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: 34 }}>HostelDesk</div>
         <button
           onClick={() => { setLoading(true); supabaseAuth.signInWithGoogle(); }}
           disabled={loading}
-          style={{ width: "100%", padding: "14px 20px", border: "2px solid #e2e8f0", borderRadius: 14, background: loading ? "#f8fafc" : "#fff", cursor: loading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, fontSize: 15, fontWeight: 700, color: "#1a2332", transition: "all 0.15s" }}
-          onMouseEnter={e => { if (!loading) e.currentTarget.style.borderColor = "#3b82f6"; }}
+          style={{ width: "100%", padding: "16px 20px", border: "2px solid #e2e8f0", borderRadius: 14, background: loading ? "#f8fafc" : "#fff", cursor: loading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, fontSize: 16, fontWeight: 700, color: "#1a2332", transition: "all 0.15s" }}
+          onMouseEnter={e => { if (!loading) e.currentTarget.style.borderColor = "#b8860b"; }}
           onMouseLeave={e => e.currentTarget.style.borderColor = "#e2e8f0"}
         >
           {loading ? "Redirecting…" : (
             <>
-              <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="m6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>
+              <svg width="22" height="22" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="m6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>
               Sign in with Google
             </>
           )}
         </button>
-        <div style={{ marginTop: 20, fontSize: 12, color: "#94a3b8" }}>Only approved accounts can access this system</div>
+        <div style={{ marginTop: 22, fontSize: 13, color: "#94a3b8" }}>Only approved accounts can access this system</div>
       </div>
     </div>
   );
@@ -3868,19 +3871,19 @@ function LoginPage() {
 function PendingPage({ user, userRole }) {
   return (
     <div style={{ minHeight: "100vh", background: "#f0f4f8", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Inter', system-ui, sans-serif" }}>
-      <div style={{ background: "#fff", borderRadius: 24, padding: "40px 32px", width: "100%", maxWidth: 400, boxShadow: "0 8px 32px #0002", textAlign: "center" }}>
-        <div style={{ fontSize: 48, marginBottom: 12 }}>{userRole?.role === "rejected" ? "❌" : "⏳"}</div>
-        <div style={{ fontWeight: 800, fontSize: 20, color: "#1a2332", marginBottom: 8 }}>
+      <div style={{ background: "#fff", borderRadius: 24, padding: "44px 32px", width: "100%", maxWidth: 400, boxShadow: "0 8px 32px #0002", textAlign: "center" }}>
+        <div style={{ fontSize: 50, marginBottom: 12 }}>{userRole?.role === "rejected" ? "❌" : "⏳"}</div>
+        <div style={{ fontWeight: 800, fontSize: 21, color: "#1a2332", marginBottom: 8 }}>
           {userRole?.role === "rejected" ? "Access Denied" : "Waiting for Approval"}
         </div>
         <div style={{ fontSize: 14, color: "#64748b", marginBottom: 8 }}>Logged in as</div>
-        <div style={{ fontWeight: 600, color: "#1a2332", marginBottom: 16 }}>{user?.email}</div>
-        <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 28, lineHeight: 1.6 }}>
+        <div style={{ fontWeight: 700, color: "#1a2332", marginBottom: 16, fontSize: 15 }}>{user?.email}</div>
+        <div style={{ fontSize: 14, color: "#64748b", marginBottom: 30, lineHeight: 1.7 }}>
           {userRole?.role === "rejected"
             ? "Your access request was rejected. Contact the admin if you think this is a mistake."
             : "Your request has been sent to the admin. You'll get access once they approve your account."}
         </div>
-        <button onClick={supabaseAuth.signOut} style={{ padding: "11px 28px", background: "#1a2332", color: "#fff", border: "none", borderRadius: 10, fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+        <button onClick={supabaseAuth.signOut} style={{ padding: "13px 30px", background: "#1a2332", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
           Sign Out
         </button>
       </div>
@@ -3916,7 +3919,7 @@ function UsersPage({ currentUser }) {
   const roleColors = {
     admin: { bg: "#eff6ff", color: "#1d4ed8", label: "Admin" },
     manager: { bg: "#f0fdf4", color: "#15803d", label: "Manager" },
-    worker: { bg: "#fefce8", color: "#a16207", label: "Worker" },
+    worker: { bg: "#fdf6e8", color: "#92650a", label: "Worker" },
     pending: { bg: "#fff7ed", color: "#c2410c", label: "Pending" },
     rejected: { bg: "#fef2f2", color: "#b91c1c", label: "Rejected" },
   };
@@ -3947,7 +3950,7 @@ function UsersPage({ currentUser }) {
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {["worker", "manager", "admin"].map(role => (
-                  <button key={role} onClick={() => changeRole(u.email, role)} disabled={updating === u.email} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: role === "worker" ? "#1a2332" : role === "manager" ? "#22c55e" : "#3b82f6", color: "#fff", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+                  <button key={role} onClick={() => changeRole(u.email, role)} disabled={updating === u.email} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: role === "worker" ? "#1a2332" : role === "manager" ? "#15803d" : "#1d4ed8", color: "#fff", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
                     {updating === u.email ? "…" : `Approve as ${role.charAt(0).toUpperCase() + role.slice(1)}`}
                   </button>
                 ))}
@@ -4120,10 +4123,10 @@ function App() {
 
   // Auth loading
   if (authLoading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: "Inter, system-ui, sans-serif", flexDirection: "column", gap: 16, background: "#f0f4f8" }}>
-      <div style={{ fontSize: 40 }}>🏨</div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2332" }}>Turiya Hostel</div>
-      <div style={{ fontSize: 14, color: "#94a3b8" }}>Checking login…</div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: "Inter, system-ui, sans-serif", flexDirection: "column", gap: 16, background: "linear-gradient(160deg, #1a2332 0%, #202f45 55%, #26344a 100%)" }}>
+      <div style={{ fontSize: 42 }}>🏨</div>
+      <div style={{ fontSize: 19, fontWeight: 800, color: "#fff" }}>Turiya Hostel</div>
+      <div style={{ fontSize: 14, color: "#b8860b", fontWeight: 600 }}>Checking login…</div>
     </div>
   );
 
@@ -4135,10 +4138,10 @@ function App() {
 
   // Data loading
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: "Inter, system-ui, sans-serif", flexDirection: "column", gap: 16, background: "#f0f4f8" }}>
-      <div style={{ fontSize: 40 }}>🏨</div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2332" }}>Loading HostelDesk…</div>
-      <div style={{ fontSize: 14, color: "#94a3b8" }}>Connecting to database</div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: "Inter, system-ui, sans-serif", flexDirection: "column", gap: 16, background: "linear-gradient(160deg, #1a2332 0%, #202f45 55%, #26344a 100%)" }}>
+      <div style={{ fontSize: 42 }}>🏨</div>
+      <div style={{ fontSize: 19, fontWeight: 800, color: "#fff" }}>Loading HostelDesk…</div>
+      <div style={{ fontSize: 14, color: "#b8860b", fontWeight: 600 }}>Connecting to database</div>
     </div>
   );
 
