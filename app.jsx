@@ -14,12 +14,30 @@ if (typeof document !== "undefined") {
   const style = document.createElement("style");
   style.textContent = `
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    body { margin: 0; overscroll-behavior: none; }
+    body { margin: 0; overscroll-behavior: none; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
     input, button { font-family: inherit; }
-    button { touch-action: manipulation; }
+    button { touch-action: manipulation; transition: transform 0.1s ease, opacity 0.15s ease; }
+    button:active:not(:disabled) { transform: scale(0.97); }
+    input, select, textarea { transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+    /* Visible keyboard focus everywhere — quality-floor accessibility, not just
+       mouse users. The !important is deliberate: it's the one clean way to
+       assert a focus ring over inline border-color styles set throughout the
+       app, without editing every individual input/button element. */
+    input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
+      outline: 2px solid #33417A;
+      outline-offset: 2px;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: #33417A !important;
+      box-shadow: 0 0 0 3px #33417A1a;
+    }
     ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #D9D2C2; border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: #C7A050; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -2377,7 +2395,7 @@ function RentPage({ rooms, setRooms, today }) {
 // table, so nothing here ever touches rent data or the Rent report.
 // ── SECURITY DEPOSIT REPORTS PANEL ───────────────────────────
 function DepositReportsPanel({ depositsLog, loading }) {
-  const [reportYear, setReportYear] = useState(new Date().getFullYear());
+  const [reportYearState, setReportYear] = useState(new Date().getFullYear());
   const [expandedMonth, setExpandedMonth] = useState(null);
 
   if (loading) {
@@ -2388,6 +2406,13 @@ function DepositReportsPanel({ depositsLog, loading }) {
   }
 
   const years = Array.from(new Set(depositsLog.map(d => new Date(d.collected_at).getFullYear()))).sort((a, b) => b - a);
+  // Local mutable copy of the selected year — falls back to the most recent
+  // year that actually has data if the current selection has none (e.g. a
+  // brand new calendar year with no deposits recorded yet). Reassigning the
+  // useState value directly here used to throw "Assignment to constant
+  // variable" at runtime in exactly that situation — this shadow variable
+  // fixes that without changing any of the render logic below.
+  let reportYear = reportYearState;
   if (!years.includes(reportYear)) reportYear = years[0];
 
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -4384,7 +4409,7 @@ function App() {
   );
 
   return (
-    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh", background: "#F3EFE3", color: "#1B1A17", paddingBottom: "env(safe-area-inset-bottom)" }}>
+    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh", background: "#F3EFE3", backgroundImage: "repeating-linear-gradient(180deg, transparent, transparent 31px, #E4DECF80 32px)", color: "#1B1A17", paddingBottom: "env(safe-area-inset-bottom)" }}>
       {saving && (
         <div style={{ position: "fixed", bottom: 80, right: 16, background: "#1B1A17", color: "#fff", padding: "10px 18px", borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 999, boxShadow: "0 4px 16px #0004" }}>
           💾 Saving…
