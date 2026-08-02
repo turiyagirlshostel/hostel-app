@@ -999,7 +999,16 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
   const dueSoon = homeCategorized.filter(t => t.rentStatus.type === "due_soon");
 
   // Recent tenants
-  const recentTenants = [...tenants].sort((a,b) => (b.admissionDate||"").localeCompare(a.admissionDate||"")).slice(0, 6);
+  // Sorted by admission date (most recent first) — when two tenants share
+  // the same date, tie-break by dbId (Postgres assigns these in increasing
+  // insertion order), so a just-added tenant always surfaces correctly
+  // instead of falling back to floor/room order, which is what the raw
+  // rooms object happens to iterate in and has nothing to do with recency.
+  const recentTenants = [...tenants].sort((a, b) => {
+    const dateCompare = (b.admissionDate || "").localeCompare(a.admissionDate || "");
+    if (dateCompare !== 0) return dateCompare;
+    return (b.dbId || 0) - (a.dbId || 0);
+  }).slice(0, 6);
 
   // This month vs last month — real trend data, backed by actual timestamped
   // records (payments/deposits ledgers). Occupancy has no historical snapshot
