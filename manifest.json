@@ -1,11 +1,11 @@
 {
-  "name": "HostelDesk",
-  "short_name": "HostelDesk",
+  "name": "Turiya Girls Hostel",
+  "short_name": "Turiya Hostel",
   "description": "Hostel room, tenant and rent management",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#f0f4f8",
-  "theme_color": "#1a2332",
+  "background_color": "#F1EFE9",
+  "theme_color": "#1D3833",
   "orientation": "portrait",
   
   "icons": [
