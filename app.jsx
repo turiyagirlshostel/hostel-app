@@ -1734,6 +1734,7 @@ function RentPage({ rooms, setRooms, today }) {
   const [filter, setFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [paidModal, setPaidModal] = useState(null);
+  const [addCycleModal, setAddCycleModal] = useState(null);
   const [busyKey, setBusyKey] = useState(null);
   const [paymentMode, setPaymentMode] = useState("Cash");
   const [paymentModeOther, setPaymentModeOther] = useState("");
@@ -1817,6 +1818,55 @@ function RentPage({ rooms, setRooms, today }) {
       });
     } catch (e) { console.warn("Payment log failed (table may not exist yet):", e); }
     return { nowIso, receiptNo, finalMode };
+  }
+  // Advance an already-PAID tenant's paid-through date by one more cycle —
+  // for a tenant who handed over several months/cycles of rent at once.
+  // Click once per cycle they paid for: each click pushes rent_paid_on
+  // forward one cycle AND logs a separate real ledger entry dated TODAY
+  // (the actual day the money was received), so Rent Reports still show
+  // each advance payment on the day it was collected rather than lumped
+  // into one payment or backdated onto a future date.
+  async function addCycle(t, paymentMode, note = "") {
+    const is15 = (t.billingType || "monthly") === "15day";
+    // Base off their current paid-through date — if for some reason they
+    // have none (shouldn't happen since this only shows for isPaid
+    // tenants), fall back to their admission date.
+    const base = t.rentPaidOn ? new Date(t.rentPaidOn) : new Date(t.admissionDate + "T00:00:00");
+    let nextPaidOn;
+    if (is15) {
+      nextPaidOn = new Date(base.getTime() + 15 * MS_PER_DAY);
+    } else {
+      // Advance exactly one calendar month, clamping the day-of-month to
+      // whatever the next month actually has (so a day-31 anchor correctly
+      // lands on Feb 28/29 etc., same clamping logic used elsewhere).
+      const y = base.getFullYear(), m = base.getMonth(), d = base.getDate();
+      const daysInNextMonth = new Date(y, m + 2, 0).getDate();
+      nextPaidOn = new Date(y, m + 1, Math.min(d, daysInNextMonth), base.getHours(), base.getMinutes(), base.getSeconds());
+    }
+    const nextPaidOnIso = nextPaidOn.toISOString();
+    const nowIso = new Date().toISOString();
+    const receiptNo = generateReceiptNo(nowIso);
+    const finalMode = paymentMode;
+    await patchTenant(
+      t,
+      { rent_paid_on: nextPaidOnIso, rent_payment_mode: finalMode, rent_receipt_no: receiptNo, rent_note: note || null },
+      { rentPaidOn: nextPaidOnIso, rentPaymentMode: finalMode, rentReceiptNo: receiptNo, rentNote: note }
+    );
+    try {
+      await logPayment({
+        receipt_no: receiptNo,
+        tenant_name: t.name,
+        phone: t.phone || "",
+        floor: t.floor,
+        room_number: t.roomNumber,
+        amount: Number(t.rentAmount) || 0,
+        payment_mode: finalMode,
+        paid_at: nowIso,
+        note: note || null,
+        tenant_id: t.dbId || null,
+      });
+    } catch (e) { console.warn("Payment log failed (table may not exist yet):", e); }
+    return { nowIso, nextPaidOnIso, receiptNo, finalMode };
   }
   async function undoPaid(t) {
     const receiptNo = t.rentReceiptNo;
@@ -2220,8 +2270,13 @@ function RentPage({ rooms, setRooms, today }) {
                           </button>
                         </>
                       )}
-                      {isPaid && (
+                      {/* Receipt/edit/undo/add-cycle only show in the dedicated "Paid" filter —
+                          kept out of "All" so that tab stays focused on who still owes rent. */}
+                      {isPaid && filter === "paid" && (
                         <>
+                          <button disabled={isBusy} onClick={() => { setPaymentMode(t.rentPaymentMode || "Cash"); setPaymentModeOther(""); setPaymentNote(""); setAddCycleModal(t); }} style={{ padding: "7px 14px", borderRadius: 10, border: "none", background: "#2B4B43", color: "#fff", fontWeight: 800, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                            ➕ Add Cycle
+                          </button>
                           <button onClick={() => printReceipt(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #A9C4B8", background: "#E7EFEA", color: "#2B4B43", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                             🧾 Receipt
                           </button>
@@ -2306,6 +2361,75 @@ function RentPage({ rooms, setRooms, today }) {
                 }
               }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#3C8F5C", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
                 ✅ Yes, Received!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Cycle modal — for a tenant who paid several cycles at once.
+          Click once per cycle: each confirm pushes their paid-through date
+          forward one more month/15-days and logs a separate real payment
+          dated today, so Reports show every advance payment on the day it
+          actually came in instead of one lump sum. */}
+      {addCycleModal && (
+        <div onClick={() => setAddCycleModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
+              <div style={{ width: 40, height: 4, borderRadius: 99, background: "#DCD5C6" }} />
+            </div>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ fontSize: 52, marginBottom: 10 }}>➕</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833" }}>Add Another Cycle</div>
+              <div style={{ fontSize: 14, color: "#6B6459", marginTop: 8 }}>Did {addCycleModal.name} also pay for another {addCycleModal.billingType === "15day" ? "15-day period" : "month"}?</div>
+              {addCycleModal.rentPaidOn && (() => {
+                const is15 = addCycleModal.billingType === "15day";
+                const base = new Date(addCycleModal.rentPaidOn);
+                let next;
+                if (is15) next = new Date(base.getTime() + 15 * MS_PER_DAY);
+                else { const y = base.getFullYear(), m = base.getMonth(), d = base.getDate(); const dim = new Date(y, m + 2, 0).getDate(); next = new Date(y, m + 1, Math.min(d, dim)); }
+                return <div style={{ fontSize: 12, color: "#9C9585", marginTop: 6 }}>Will move their "paid till" to {fmtDateIST(next, { day: "numeric", month: "short", year: "numeric" })}</div>;
+              })()}
+              {addCycleModal.rentAmount && (
+                <div style={{ marginTop: 14, display: "inline-block", background: "#E7EFEA", color: "#2B4B43", fontWeight: 600, fontSize: 30, padding: "10px 28px", borderRadius: 14, border: "2.5px solid #A9C4B8", fontFamily: FONT_DISPLAY }}>
+                  ₹{Number(addCycleModal.rentAmount).toLocaleString("en-IN")}
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#57524A", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
+              <PaymentModeSelector mode={paymentMode} setMode={setPaymentMode} otherText={paymentModeOther} setOtherText={setPaymentModeOther} />
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#57524A", marginBottom: 6 }}>Notes (optional — will print on the receipt)</div>
+              <input
+                value={paymentNote}
+                onChange={e => setPaymentNote(e.target.value)}
+                placeholder="e.g. paid 3 months in advance…"
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DCD5C6", fontSize: 13, boxSizing: "border-box" }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setAddCycleModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={async () => {
+                const t = addCycleModal;
+                const mode = paymentMode === "Other" ? paymentModeOther.trim() : paymentMode;
+                const note = paymentNote.trim();
+                setAddCycleModal(null);
+                const result = await addCycle(t, mode, note);
+                if (result) {
+                  printReceipt({
+                    ...t,
+                    rentPaidOn: result.nowIso,
+                    rentPaymentMode: result.finalMode,
+                    rentReceiptNo: result.receiptNo,
+                    rentNote: note ? `${note} · advance cycle` : "Advance cycle payment",
+                  });
+                }
+              }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#2B4B43", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+                ➕ Yes, Add This Cycle
               </button>
             </div>
           </div>
