@@ -1967,6 +1967,39 @@ function RentPage({ rooms, setRooms, today }) {
   const paidList = categorized.filter(t => t.isPaid);
   const snoozedList = categorized.filter(t => t.isSnoozed);
 
+  // ── COUNTDOWN VIEW — one unified list, every cyclic tenant (paid,
+  // unpaid, snoozed — everyone with a due date), sorted soonest-first, each
+  // showing a single plain-language countdown to their NEXT payment:
+  //   already overdue  → "Overdue by N days"   (negative countdown)
+  //   due today        → "Due today"           (zero)
+  //   not due yet       → "N days left"          (positive countdown)
+  // This is separate from the Overdue/Due Soon/Paid buckets above — those
+  // split people into groups; this just answers "how many days until each
+  // person's next rent," in one sorted list, regardless of their status.
+  const countdownAll = categorized.map(t => {
+    const rs = t.rentStatus;
+    let daysToNext, countdownLabel;
+    if (rs.type === "overdue") {
+      daysToNext = -(rs.daysOverdue || 0);
+      countdownLabel = `Overdue by ${rs.daysOverdue} day${rs.daysOverdue !== 1 ? "s" : ""}`;
+    } else if (rs.type === "due_today") {
+      daysToNext = 0;
+      countdownLabel = "Due today";
+    } else {
+      daysToNext = rs.daysUntil;
+      countdownLabel = `${rs.daysUntil} day${rs.daysUntil !== 1 ? "s" : ""} left`;
+    }
+    return { ...t, daysToNext, countdownLabel };
+  }).sort((a, b) => a.daysToNext - b.daysToNext);
+  const countdownShown = searchQuery.trim()
+    ? countdownAll.filter(t =>
+        t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (t.phone || "").includes(searchQuery) ||
+        String(t.roomNumber).includes(searchQuery) ||
+        String(t.floor).includes(searchQuery)
+      )
+    : countdownAll;
+
   let shown = [];
   if (filter === "all") shown = [...overdue, ...dueToday, ...dueSoon, ...ok, ...paidList];
   else if (filter === "overdue") shown = overdue;
@@ -2179,6 +2212,7 @@ function RentPage({ rooms, setRooms, today }) {
           { id: "ok", label: "🟢 Upcoming" },
           { id: "paid", label: "✅ Paid" },
           { id: "snoozed", label: "⏭️ Snoozed" },
+          { id: "countdown", label: "📆 Countdown" },
         ].map(f => (
           <button key={f.id} onClick={() => setFilter(f.id)} style={{
             padding: "6px 12px", borderRadius: 8,
@@ -2188,9 +2222,54 @@ function RentPage({ rooms, setRooms, today }) {
             fontWeight: 600, fontSize: 12, cursor: "pointer",
           }}>{f.label}</button>
         ))}
-        <span style={{ marginLeft: "auto", fontSize: 12, color: "#9C9585" }}>{shown.length} tenants</span>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "#9C9585" }}>{filter === "countdown" ? countdownShown.length : shown.length} tenants</span>
       </div>
 
+      {/* Countdown view — one flat list, everyone with a due date, sorted
+          soonest-first, showing a plain "N days left / Due today / Overdue
+          by N days" line per person. Bypasses the grouped-by-due-day list
+          below entirely. */}
+      {filter === "countdown" ? (
+        countdownShown.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "40px 0", color: "#9C9585" }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>📆</div>
+            <div style={{ fontWeight: 600 }}>No cyclic tenants to show</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {countdownShown.map((t, idx) => {
+              const overdueDay = t.daysToNext < 0;
+              const dueTodayFlag = t.daysToNext === 0;
+              const soon = t.daysToNext > 0 && t.daysToNext <= 3;
+              const color = overdueDay ? "#8F3120" : dueTodayFlag ? "#C1543C" : soon ? "#C1861F" : "#3C8F5C";
+              const bg = (overdueDay || dueTodayFlag) ? "#FBEEEA" : soon ? "#FBF3E1" : "#EBF3EC";
+              const dueDateText = t.is15
+                ? fmtDateIST(t.rentStatus.nextDue, { day: "numeric", month: "short" })
+                : `on the ${ordinal(t.rentStatus.dueDay)}`;
+              return (
+                <div key={idx} style={{ display: "flex", alignItems: "center", gap: 12, background: "#fff", border: `1.5px solid ${color}44`, borderLeft: `4px solid ${color}`, borderRadius: 12, padding: "12px 14px" }}>
+                  <div style={{ width: 38, height: 38, borderRadius: "50%", background: bg, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 15, color, flexShrink: 0 }}>
+                    {t.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}>
+                      {t.name}
+                      {t.isPaid && <span style={{ fontSize: 11 }}>✅</span>}
+                      {t.isSnoozed && <span style={{ fontSize: 11 }}>⏰</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#9C9585" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14, color }}>{t.countdownLabel}</div>
+                    <div style={{ fontSize: 10, color: "#9C9585" }}>{dueDateText}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      ) : (
+      <>
       {/* Tenant list */}
       {shown.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 0", color: "#9C9585" }}>
@@ -2306,6 +2385,8 @@ function RentPage({ rooms, setRooms, today }) {
           </div>
           );
         })
+      )}
+      </>
       )}
 
       {/* Paid confirmation modal */}
