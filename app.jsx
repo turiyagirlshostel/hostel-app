@@ -3799,6 +3799,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                           placeholder={(t.billingType || "monthly") === "daily" ? "e.g. 300" : (t.billingType || "monthly") === "15day" ? "e.g. 3500" : "e.g. 5000"}
                           value={t.rentAmount || ""}
                           onChange={e => updateTenant(i, "rentAmount", e.target.value)}
+                          onWheel={e => e.currentTarget.blur()}
                           style={{ ...inputStyle, paddingLeft: 26 }}
                           min="0"
                         />
@@ -3820,6 +3821,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                           placeholder="e.g. 3000"
                           value={t.depositAmount || ""}
                           onChange={e => updateTenant(i, "depositAmount", e.target.value)}
+                          onWheel={e => e.currentTarget.blur()}
                           style={{ ...inputStyle, paddingLeft: 26 }}
                           min="0"
                         />
