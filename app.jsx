@@ -2151,7 +2151,8 @@ function RentPage({ rooms, setRooms, today }) {
         sortedKeys.map(key => {
           const group = grouped[key];
           const first = group[0];
-          const headerLabel = filter === "paid" ? "✅ Paid this cycle"
+          const headerLabel = filter === "paid"
+            ? (first.is15 ? `✅ Paid · Next due ${fmtDateIST(first.rentStatus.nextDue, { day: "numeric", month: "short" })}` : `✅ Paid · Next due ${ordinal(first.rentStatus.dueDay)} of every month`)
             : filter === "snoozed" ? "⏭️ Snoozed"
             : first.rentStatus.type === "due_today" ? "🔴 Due Today"
             : first.is15 ? `🔁 ${fmtDateIST(first.rentStatus.nextDue, { day: "numeric", month: "short" })} · 15-Day Cycle`
@@ -2197,6 +2198,7 @@ function RentPage({ rooms, setRooms, today }) {
                         <div style={{ fontSize: 11, color: "#9C9585", marginTop: 2 }}>
                           Joined: {fmt(t.admissionDate)}
                           {isPaid && t.rentPaidOn && ` · Paid: ${fmtDateIST(new Date(t.rentPaidOn))}`}
+                          {isPaid && t.rentStatus && ` · Next due: ${t.is15 ? fmtDateIST(t.rentStatus.nextDue, { day: "numeric", month: "short", year: "numeric" }) : ordinal(t.rentStatus.dueDay) + " of every month"}`}
                           {isSnoozed && t.rentSnoozedUntil && ` · Snoozed until ${fmtDateIST(new Date(t.rentSnoozedUntil), { day: "numeric", month: "short" })} (or sooner if next cycle starts)`}
                         </div>
                       </div>
@@ -3138,6 +3140,49 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
   const [creatingRoom, setCreatingRoom] = useState(false);
   const [confirmDeleteRoom, setConfirmDeleteRoom] = useState(null);
   const [deletingRoom, setDeletingRoom] = useState(false);
+  // Warns before saving if clearing/replacing a tenant would leave their
+  // security deposit stranded (collected but never marked returned).
+  const [depositWarning, setDepositWarning] = useState(null);
+  // Per-bed inline return form state, keyed by bed number: { amount, mode,
+  // modeOther, note, step: 'form' | 'confirm' | 'busy' | 'done' }
+  const [returnState, setReturnState] = useState({});
+  function patchReturnState(bed, patch) {
+    setReturnState(rs => ({ ...rs, [bed]: { ...rs[bed], ...patch } }));
+  }
+
+  // Records a deposit return directly from the Clear/Save flow — mirrors
+  // DepositsPage's own confirmReturn, but looked up by receipt number since
+  // this form only has the tenant's local record, not the ledger row id.
+  async function returnDepositInline(entry) {
+    const rs = returnState[entry.bed];
+    const mode = rs.mode === "Other" ? rs.modeOther.trim() : rs.mode;
+    const amount = Number(rs.amount) || 0;
+    patchReturnState(entry.bed, { step: "busy" });
+    try {
+      const nowIso = new Date().toISOString();
+      const returnReceiptNo = generateReceiptNo(nowIso, "SDR");
+      const rows = await sbFetch(`/security_deposits?receipt_no=eq.${encodeURIComponent(entry.depositReceiptNo)}&select=*`);
+      const row = rows && rows[0];
+      if (!row) throw new Error("Could not find the original deposit record.");
+      await updateDepositRecord(row.id, {
+        returned_at: nowIso, return_amount: amount, return_mode: mode,
+        return_receipt_no: returnReceiptNo, return_note: rs.note.trim() || null,
+      });
+      if (entry.dbId) {
+        try { await sbFetch(`/tenants?id=eq.${entry.dbId}`, "PATCH", { deposit_returned_on: nowIso, deposit_return_amount: amount }, { "Prefer": "return=minimal" }); } catch (e) {}
+      }
+      generateReceiptPDF({
+        name: entry.name, phone: entry.phone, floorLabel: FLOOR_LABELS[editingRoom.floor] || "Floor " + editingRoom.floor,
+        roomNumber: editingRoom.number, paidDate: new Date(nowIso), amount, mode, receiptNo: returnReceiptNo,
+        cycleNote: "Security Deposit Return", note: rs.note.trim(), docTitle: "Deposit Return Receipt", amountLabel: "AMOUNT RETURNED", fileTag: "deposit_return",
+      });
+      patchReturnState(entry.bed, { step: "done" });
+    } catch (e) {
+      console.error(e);
+      alert("Failed to record the return. Please check your internet connection.");
+      patchReturnState(entry.bed, { step: "confirm" });
+    }
+  }
 
   // ── MOVE TENANT — lets a tenant switch rooms/beds without losing their
   // payment/deposit history (keeps their same database row id, just repoints
@@ -3172,6 +3217,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
   function updateTenant(i, field, value) {
     setEditForm(f => ({ ...f, tenants: f.tenants.map((t, idx) => idx === i ? { ...t, [field]: value } : t) }));
   }
+  const [clearConfirm, setClearConfirm] = useState(null); // { bedIndex, name }
   function clearTenant(i) {
     setEditForm(f => ({ ...f, tenants: f.tenants.map((t, idx) => idx === i ? { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "" } : t) }));
   }
@@ -3210,6 +3256,25 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
       seenInThisForm.set(norm, i);
     });
     return byBed;
+  }
+
+  // Same "is this actually the same person" check saveRoom uses (name match,
+  // or phone match if the name changed) — mirrored here so this warning only
+  // fires for a genuine clear/replace, not an ordinary name-typo fix.
+  function getOutgoingHeldDeposits() {
+    if (!editingRoom || !editForm) return [];
+    const out = [];
+    editingRoom.tenants.forEach((orig, i) => {
+      if (!orig.name || orig.name.trim() === "") return; // bed was already empty
+      const newT = editForm.tenants[i] || {};
+      const newHasName = !!(newT.name && newT.name.trim() !== "");
+      const samePersonByPhone = orig.phone && newT.phone && normalizePhone10(orig.phone) && normalizePhone10(orig.phone) === normalizePhone10(newT.phone);
+      const isSamePerson = newHasName && (orig.name === newT.name || samePersonByPhone);
+      if (isSamePerson) return; // still the same tenant — nothing "outgoing"
+      const hasHeldDeposit = Number(orig.depositAmount) > 0 && orig.depositPaidOn && !orig.depositReturnedOn;
+      if (hasHeldDeposit) out.push({ name: orig.name, bed: i + 1, depositAmount: orig.depositAmount, depositReceiptNo: orig.depositReceiptNo, phone: orig.phone, dbId: orig.dbId });
+    });
+    return out;
   }
 
   function saveEdit() {
@@ -3438,7 +3503,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                     <span style={{ fontSize: 13, fontWeight: 700, color: "#3A362E" }}>🛏 Bed {i + 1}</span>
                     <div style={{ display: "flex", gap: 6 }}>
                       {t.name && t.dbId && <button onClick={() => openMoveModal(i)} style={{ fontSize: 11, color: "#2B4B43", background: "#E7EFEA", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontWeight: 600 }}>↔️ Move</button>}
-                      {t.name && <button onClick={() => clearTenant(i)} style={{ fontSize: 11, color: "#C1543C", background: "#FBEEEA", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontWeight: 600 }}>Clear</button>}
+                      {t.name && <button onClick={() => setClearConfirm({ bedIndex: i, name: t.name })} style={{ fontSize: 11, color: "#C1543C", background: "#FBEEEA", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontWeight: 600 }}>Clear</button>}
                     </div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -3619,7 +3684,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
 
             <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
               <button onClick={() => setEditingRoom(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>Cancel</button>
-              <button onClick={saveEdit} disabled={Object.keys(phoneIssues).length > 0} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: Object.keys(phoneIssues).length > 0 ? "#9C9585" : "#1D3833", color: "#fff", fontWeight: 700, fontSize: 15, cursor: Object.keys(phoneIssues).length > 0 ? "not-allowed" : "pointer" }}>💾 Save Changes</button>
+              <button onClick={() => { const outgoing = getOutgoingHeldDeposits(); if (outgoing.length > 0) { setDepositWarning(outgoing); const init = {}; outgoing.forEach(o => { init[o.bed] = { amount: String(o.depositAmount), mode: "Cash", modeOther: "", note: "", step: "form" }; }); setReturnState(init); return; } saveEdit(); }} disabled={Object.keys(phoneIssues).length > 0} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: Object.keys(phoneIssues).length > 0 ? "#9C9585" : "#1D3833", color: "#fff", fontWeight: 700, fontSize: 15, cursor: Object.keys(phoneIssues).length > 0 ? "not-allowed" : "pointer" }}>💾 Save Changes</button>
             </div>
             {isManager && (
               <div style={{ textAlign: "center", marginTop: 14 }}>
@@ -3738,6 +3803,100 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
           </div>
         );
       })()}
+
+      {/* Clear-tenant confirmation — a misclick here used to wipe a tenant's
+          details instantly with no way back short of not saving. */}
+      {clearConfirm && (
+        <div onClick={() => setClearConfirm(null)} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 260, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 340 }}>
+            <div style={{ fontSize: 40, textAlign: "center", marginBottom: 8 }}>🗑️</div>
+            <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>Clear {clearConfirm.name}?</div>
+            <div style={{ fontSize: 13, color: "#6B6459", textAlign: "center", marginBottom: 18 }}>
+              This empties their details from Bed {clearConfirm.bedIndex + 1} in this form. It won't take effect until you press Save Changes.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setClearConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => { clearTenant(clearConfirm.bedIndex); setClearConfirm(null); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#A83D2A", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Yes, Clear</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deposit-still-held warning — shown when Save would clear/replace a
+          tenant who still has a security deposit collected but never marked
+          returned. Each one can be returned right here, with its own
+          confirmation, instead of needing a separate trip to Deposits. */}
+      {depositWarning && (
+        <div onClick={() => setDepositWarning(null)} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 260, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 420, maxHeight: "88vh", overflowY: "auto" }}>
+            <div style={{ fontSize: 40, textAlign: "center", marginBottom: 8 }}>🔒</div>
+            <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 6 }}>Deposit still held</div>
+            <div style={{ fontSize: 13, color: "#6B6459", textAlign: "center", marginBottom: 18, lineHeight: 1.6 }}>
+              {depositWarning.length > 1 ? "These tenants still have" : "This tenant still has"} a security deposit that hasn't been returned. You can return it now, or skip and handle it later from Deposits.
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 18 }}>
+              {depositWarning.map((entry) => {
+                const rs = returnState[entry.bed] || { amount: String(entry.depositAmount), mode: "Cash", modeOther: "", note: "", step: "form" };
+                return (
+                  <div key={entry.bed} style={{ border: "1.5px solid #DCD5C6", borderRadius: 12, padding: 14, background: "#F6F3EA" }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{entry.name} <span style={{ fontWeight: 500, color: "#9C9585", fontSize: 12 }}>(Bed {entry.bed})</span></div>
+                    <div style={{ fontSize: 12, color: "#6B6459", marginBottom: 10 }}>Collected ₹{Number(entry.depositAmount).toLocaleString("en-IN")}</div>
+
+                    {rs.step === "done" && (
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#2F6B44", background: "#EBF3EC", borderRadius: 8, padding: "8px 10px" }}>
+                        ✅ Returned ₹{Number(rs.amount).toLocaleString("en-IN")} to {entry.name}
+                      </div>
+                    )}
+
+                    {rs.step === "form" && (
+                      <>
+                        <label style={{ fontSize: 10.5, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 4 }}>AMOUNT TO RETURN</label>
+                        <div style={{ position: "relative", marginBottom: 10 }}>
+                          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#6B6459", fontWeight: 700 }}>₹</span>
+                          <input type="number" min="0" value={rs.amount} onChange={e => patchReturnState(entry.bed, { amount: e.target.value })}
+                            style={{ ...inputStyle, padding: "8px 10px 8px 24px", fontSize: 13 }} />
+                        </div>
+                        <label style={{ fontSize: 10.5, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 4 }}>NOTE (optional)</label>
+                        <input value={rs.note} onChange={e => patchReturnState(entry.bed, { note: e.target.value })} placeholder="e.g. ₹500 deducted for damage"
+                          style={{ ...inputStyle, padding: "8px 10px", fontSize: 13, marginBottom: 10 }} />
+                        <PaymentModeSelector mode={rs.mode} setMode={m => patchReturnState(entry.bed, { mode: m })} otherText={rs.modeOther} setOtherText={t => patchReturnState(entry.bed, { modeOther: t })} />
+                        <button onClick={() => patchReturnState(entry.bed, { step: "confirm" })} style={{ width: "100%", marginTop: 10, padding: "9px 0", borderRadius: 9, border: "none", background: "#33417A", color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                          ↩️ Return Deposit
+                        </button>
+                      </>
+                    )}
+
+                    {rs.step === "confirm" && (
+                      <div>
+                        <div style={{ fontSize: 13, color: "#1D3833", marginBottom: 10, lineHeight: 1.5 }}>
+                          Confirm — you actually handed back <b>₹{Number(rs.amount).toLocaleString("en-IN")}</b> to <b>{entry.name}</b> via {rs.mode === "Other" ? (rs.modeOther || "Other") : rs.mode}?
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button onClick={() => patchReturnState(entry.bed, { step: "form" })} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 12.5, cursor: "pointer" }}>Back</button>
+                          <button onClick={() => returnDepositInline(entry)} style={{ flex: 2, padding: "9px 0", borderRadius: 9, border: "none", background: "#2F6B44", color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                            ✅ Yes, I Returned It
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {rs.step === "busy" && (
+                      <div style={{ fontSize: 13, color: "#9C9585", textAlign: "center", padding: "6px 0" }}>Saving…</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setDepositWarning(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Go Back</button>
+              <button onClick={() => { setDepositWarning(null); saveEdit(); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#B8622E", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Continue & Save</button>
+            </div>
+            <div style={{ fontSize: 11, color: "#9C9585", textAlign: "center", marginTop: 12 }}>Any deposit left un-returned above will still show as owed in the Deposits tab.</div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Room confirmation modal */}
       {confirmDeleteRoom && (() => {
