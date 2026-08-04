@@ -2368,13 +2368,18 @@ function RentPage({ rooms, setRooms, today }) {
                           </button>
                         </>
                       )}
-                      {/* Receipt/edit/undo/add-cycle only show in the dedicated "Paid" filter —
+                      {/* Add Cycle shows for any paid tenant, on every tab —
+                          so you can top up an advance payment without
+                          having to switch to the Paid filter first. */}
+                      {isPaid && (
+                        <button disabled={isBusy} onClick={() => { setPaymentMode(t.rentPaymentMode || "Cash"); setPaymentModeOther(""); setPaymentNote(""); setAddCycleModal(t); }} style={{ padding: "7px 14px", borderRadius: 10, border: "none", background: "#2B4B43", color: "#fff", fontWeight: 800, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                          ➕ Add Cycle
+                        </button>
+                      )}
+                      {/* Receipt/edit/undo only show in the dedicated "Paid" filter —
                           kept out of "All" so that tab stays focused on who still owes rent. */}
                       {isPaid && filter === "paid" && (
                         <>
-                          <button disabled={isBusy} onClick={() => { setPaymentMode(t.rentPaymentMode || "Cash"); setPaymentModeOther(""); setPaymentNote(""); setAddCycleModal(t); }} style={{ padding: "7px 14px", borderRadius: 10, border: "none", background: "#2B4B43", color: "#fff", fontWeight: 800, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
-                            ➕ Add Cycle
-                          </button>
                           <button onClick={() => printReceipt(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #A9C4B8", background: "#E7EFEA", color: "#2B4B43", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                             🧾 Receipt
                           </button>
