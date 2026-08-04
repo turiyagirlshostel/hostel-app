@@ -1836,24 +1836,51 @@ function RentPage({ rooms, setRooms, today }) {
   // (the actual day the money was received), so Rent Reports still show
   // each advance payment on the day it was collected rather than lumped
   // into one payment or backdated onto a future date.
+  //
+  // IMPORTANT: this must advance from the tenant's actual due-day-aligned
+  // "paid through" boundary — NOT from the raw rent_paid_on timestamp.
+  // rent_paid_on just records the moment someone clicked Mark Paid, which
+  // could be any day of the month, not necessarily their due day. Adding a
+  // month to that raw click-moment produces a date that doesn't line up
+  // with their due day, which the app's own cycle math then silently rolls
+  // back to the nearest earlier due-day occurrence — undercounting the
+  // advance and drifting the date by a stray day or more each time this is
+  // clicked. So we reuse the exact same getCycleStart/getCycleStart15
+  // boundary math the rest of the app already trusts, find the REAL date
+  // they're currently paid through, and push exactly one more full cycle
+  // from there — always landing precisely on their due day, every time.
   async function addCycle(t, paymentMode, note = "") {
     const is15 = (t.billingType || "monthly") === "15day";
-    // Base off their current paid-through date — if for some reason they
-    // have none (shouldn't happen since this only shows for isPaid
-    // tenants), fall back to their admission date.
-    const base = t.rentPaidOn ? new Date(t.rentPaidOn) : new Date(t.admissionDate + "T00:00:00");
-    let nextPaidOn;
-    if (is15) {
-      nextPaidOn = new Date(base.getTime() + 15 * MS_PER_DAY);
-    } else {
-      // Advance exactly one calendar month, clamping the day-of-month to
-      // whatever the next month actually has (so a day-31 anchor correctly
-      // lands on Feb 28/29 etc., same clamping logic used elsewhere).
-      const y = base.getFullYear(), m = base.getMonth(), d = base.getDate();
-      const daysInNextMonth = new Date(y, m + 2, 0).getDate();
-      nextPaidOn = new Date(y, m + 1, Math.min(d, daysInNextMonth), base.getHours(), base.getMinutes(), base.getSeconds());
+    const ad = new Date(t.admissionDate + "T00:00:00");
+    const paidRef = t.rentPaidOn ? new Date(t.rentPaidOn) : ad;
+
+    function nextBoundaryAfter(boundary) {
+      if (is15) return new Date(boundary.getTime() + 15 * MS_PER_DAY);
+      const dueDay = ad.getDate();
+      const y = boundary.getFullYear(), m = boundary.getMonth();
+      const daysInNext = new Date(y, m + 2, 0).getDate();
+      return new Date(y, m + 1, Math.min(dueDay, daysInNext));
     }
-    const nextPaidOnIso = nextPaidOn.toISOString();
+
+    // Their REAL current "paid through" date — same boundary getRentStatus
+    // itself computes, so this always agrees with what the countdown shows.
+    let currentBoundary;
+    if (is15) {
+      const coveredCycleStart = getCycleStart15(t.admissionDate, paidRef);
+      currentBoundary = new Date(coveredCycleStart.getTime() + 15 * MS_PER_DAY);
+    } else {
+      const dueDay = ad.getDate();
+      const coveredCycleStart = getCycleStart(dueDay, paidRef);
+      let y = coveredCycleStart.getFullYear(), m = coveredCycleStart.getMonth() + 1;
+      if (m > 11) { m = 0; y++; }
+      const daysInM = new Date(y, m + 1, 0).getDate();
+      currentBoundary = new Date(y, m, Math.min(dueDay, daysInM));
+    }
+
+    // Push exactly one more full cycle beyond that — this becomes their new
+    // paid-through date, always landing exactly on the due day.
+    const nextBoundary = nextBoundaryAfter(currentBoundary);
+    const nextPaidOnIso = nextBoundary.toISOString();
     const nowIso = new Date().toISOString();
     const receiptNo = generateReceiptNo(nowIso);
     const finalMode = paymentMode;
