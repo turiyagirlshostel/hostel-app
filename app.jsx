@@ -1771,6 +1771,16 @@ function RentPage({ rooms, setRooms, today }) {
 
   function tKey(t) { return `${t.floor}-${t.roomNumber}-${t.bed}`; }
 
+  // Shared countdown formatter — turns a rentStatus object into a single
+  // plain-language "days to next payment" line, used both on every tenant
+  // card (all tabs) and in the dedicated Countdown tab, so the two never
+  // drift out of sync with each other.
+  function countdownInfo(rs) {
+    if (rs.type === "overdue") return { daysToNext: -(rs.daysOverdue || 0), label: `Overdue +${rs.daysOverdue}d` };
+    if (rs.type === "due_today") return { daysToNext: 0, label: "Due today" };
+    return { daysToNext: rs.daysUntil, label: `${rs.daysUntil}d left` };
+  }
+
   // Persist a payment-status change to Supabase, then reflect it in local state
   async function patchTenant(t, dbFields, localFields) {
     const key = tKey(t);
@@ -2331,9 +2341,18 @@ function RentPage({ rooms, setRooms, today }) {
                           {isSnoozed && t.rentSnoozedUntil && ` · Snoozed until ${fmtDateIST(new Date(t.rentSnoozedUntil), { day: "numeric", month: "short" })} (or sooner if next cycle starts)`}
                         </div>
                       </div>
-                      <span style={{ flexShrink: 0, background: isPaid ? "#E4EFE6" : isSnoozed ? "#EDE3F1" : rs.bg, color: isPaid ? "#2F6B44" : isSnoozed ? "#6B4E86" : rs.color, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 99, border: `1px solid ${borderColor}44`, whiteSpace: "nowrap" }}>
-                        {isPaid ? "✅ Paid" : isSnoozed ? `⏰ Snoozed to ${fmtDateIST(new Date(t.rentSnoozedUntil), { day: "numeric", month: "short" })}` : `${rs.icon} ${rs.label}`}
-                      </span>
+                      <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                        <span style={{ background: isPaid ? "#E4EFE6" : isSnoozed ? "#EDE3F1" : rs.bg, color: isPaid ? "#2F6B44" : isSnoozed ? "#6B4E86" : rs.color, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 99, border: `1px solid ${borderColor}44`, whiteSpace: "nowrap" }}>
+                          {isPaid ? "✅ Paid" : isSnoozed ? `⏰ Snoozed to ${fmtDateIST(new Date(t.rentSnoozedUntil), { day: "numeric", month: "short" })}` : `${rs.icon} ${rs.label}`}
+                        </span>
+                        {/* Countdown chip — always shown, in every tab, on
+                            every card (paid, unpaid, snoozed) — so you don't
+                            need to switch to the dedicated Countdown tab
+                            just to see how many days are left. */}
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: "#6B6459", whiteSpace: "nowrap" }}>
+                          📆 {countdownInfo(rs).label}
+                        </span>
+                      </div>
                     </div>
                     {/* Action buttons row */}
                     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
