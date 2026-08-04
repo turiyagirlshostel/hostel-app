@@ -1846,24 +1846,18 @@ function RentPage({ rooms, setRooms, today }) {
   // back to the nearest earlier due-day occurrence — undercounting the
   // advance and drifting the date by a stray day or more each time this is
   // clicked. So we reuse the exact same getCycleStart/getCycleStart15
-  // boundary math the rest of the app already trusts, find the REAL date
-  // they're currently paid through, and push exactly one more full cycle
-  // from there — always landing precisely on their due day, every time.
+  // boundary math the rest of the app already trusts to find their REAL
+  // next-due boundary, and save THAT as the new rent_paid_on — always
+  // landing precisely on their due day, and always exactly one cycle
+  // further than before, every time.
   async function addCycle(t, paymentMode, note = "") {
     const is15 = (t.billingType || "monthly") === "15day";
     const ad = new Date(t.admissionDate + "T00:00:00");
     const paidRef = t.rentPaidOn ? new Date(t.rentPaidOn) : ad;
 
-    function nextBoundaryAfter(boundary) {
-      if (is15) return new Date(boundary.getTime() + 15 * MS_PER_DAY);
-      const dueDay = ad.getDate();
-      const y = boundary.getFullYear(), m = boundary.getMonth();
-      const daysInNext = new Date(y, m + 2, 0).getDate();
-      return new Date(y, m + 1, Math.min(dueDay, daysInNext));
-    }
-
-    // Their REAL current "paid through" date — same boundary getRentStatus
-    // itself computes, so this always agrees with what the countdown shows.
+    // Their REAL current "next due" boundary — same boundary getRentStatus
+    // itself computes as firstMissedBoundary, so this always agrees with
+    // what the countdown shows right now.
     let currentBoundary;
     if (is15) {
       const coveredCycleStart = getCycleStart15(t.admissionDate, paidRef);
@@ -1877,9 +1871,13 @@ function RentPage({ rooms, setRooms, today }) {
       currentBoundary = new Date(y, m, Math.min(dueDay, daysInM));
     }
 
-    // Push exactly one more full cycle beyond that — this becomes their new
-    // paid-through date, always landing exactly on the due day.
-    const nextBoundary = nextBoundaryAfter(currentBoundary);
+    // currentBoundary IS the boundary exactly one cycle past what they were
+    // paid through before this click (it's literally firstMissedBoundary —
+    // the date they now owe against). Saving it as the new rentPaidOn is
+    // what advances them by exactly one cycle: getRentStatus will then
+    // recompute ITS firstMissedBoundary as one cycle further still, so the
+    // countdown correctly shows the NEXT due date after this one.
+    const nextBoundary = currentBoundary;
     const nextPaidOnIso = nextBoundary.toISOString();
     const nowIso = new Date().toISOString();
     const receiptNo = generateReceiptNo(nowIso);
