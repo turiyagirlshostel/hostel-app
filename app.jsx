@@ -1918,7 +1918,7 @@ function RentPage({ rooms, setRooms, today }) {
   const snoozedList = categorized.filter(t => t.isSnoozed);
 
   let shown = [];
-  if (filter === "all") shown = [...overdue, ...dueToday, ...dueSoon, ...ok];
+  if (filter === "all") shown = [...overdue, ...dueToday, ...dueSoon, ...ok, ...paidList];
   else if (filter === "overdue") shown = overdue;
   else if (filter === "due_today") shown = dueToday;
   else if (filter === "due_soon") shown = dueSoon;
@@ -2152,7 +2152,7 @@ function RentPage({ rooms, setRooms, today }) {
           const group = grouped[key];
           const first = group[0];
           const headerLabel = filter === "paid"
-            ? (first.is15 ? `✅ Paid · Next due ${fmtDateIST(first.rentStatus.nextDue, { day: "numeric", month: "short" })}` : `✅ Paid · Next due ${ordinal(first.rentStatus.dueDay)} of every month`)
+            ? `✅ Paid · Next due in ${first.rentStatus.daysUntil} day${first.rentStatus.daysUntil !== 1 ? "s" : ""} (${first.is15 ? fmtDateIST(first.rentStatus.nextDue, { day: "numeric", month: "short" }) : ordinal(first.rentStatus.dueDay)})`
             : filter === "snoozed" ? "⏭️ Snoozed"
             : first.rentStatus.type === "due_today" ? "🔴 Due Today"
             : first.is15 ? `🔁 ${fmtDateIST(first.rentStatus.nextDue, { day: "numeric", month: "short" })} · 15-Day Cycle`
@@ -2198,7 +2198,7 @@ function RentPage({ rooms, setRooms, today }) {
                         <div style={{ fontSize: 11, color: "#9C9585", marginTop: 2 }}>
                           Joined: {fmt(t.admissionDate)}
                           {isPaid && t.rentPaidOn && ` · Paid: ${fmtDateIST(new Date(t.rentPaidOn))}`}
-                          {isPaid && t.rentStatus && ` · Next due: ${t.is15 ? fmtDateIST(t.rentStatus.nextDue, { day: "numeric", month: "short", year: "numeric" }) : ordinal(t.rentStatus.dueDay) + " of every month"}`}
+                          {isPaid && t.rentStatus && ` · Next due in ${t.rentStatus.daysUntil} day${t.rentStatus.daysUntil !== 1 ? "s" : ""} (${t.is15 ? fmtDateIST(t.rentStatus.nextDue, { day: "numeric", month: "short" }) : ordinal(t.rentStatus.dueDay)})`}
                           {isSnoozed && t.rentSnoozedUntil && ` · Snoozed until ${fmtDateIST(new Date(t.rentSnoozedUntil), { day: "numeric", month: "short" })} (or sooner if next cycle starts)`}
                         </div>
                       </div>
