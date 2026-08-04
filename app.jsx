@@ -386,7 +386,18 @@ async function saveRoom(room, tenants) {
     }
 
     // ex exists and the form has a name for this bed
-    if (ex.name !== t.name) {
+    // Same person = same bed occupant, not a replacement. Name alone is a
+    // fragile identity check — correcting a typo in a tenant's name would
+    // otherwise look identical to "a new tenant moved into this bed," which
+    // wrongly archives the real tenant (marks them as checked-out) and
+    // orphans their existing payment/deposit history under a deleted id.
+    // If both records have a phone number and it matches, that's a much
+    // more reliable signal that it's the same person even though the name
+    // text changed — phone numbers essentially never coincidentally match
+    // between two different tenants.
+    const samePersonByPhone = ex.phone && t.phone && normalizePhone10(ex.phone) && normalizePhone10(ex.phone) === normalizePhone10(t.phone);
+    const isSamePerson = ex.name === t.name || samePersonByPhone;
+    if (!isSamePerson) {
       // Different name in the same bed = a new tenant replaced the old one.
       // Archive the outgoing tenant, delete their row, insert the new one
       // as a fresh row (so they get their own id and payment history).
@@ -927,12 +938,20 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
 function DonutChart({ pct, color, size = 90 }) {
   const r = 30, cx = 40, cy = 40, circ = 2 * Math.PI * r;
   const dash = (pct / 100) * circ;
+  const gid = "donutGrad" + color.replace("#", "");
   return (
     <svg width={size} height={size} viewBox="0 0 80 80">
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#DCD5C6" strokeWidth="10" />
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth="10"
-        strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" transform="rotate(-90 40 40)" />
-      <text x="40" y="45" textAnchor="middle" fontSize="13" fontWeight="700" fill={color}>{pct}%</text>
+      <defs>
+        <linearGradient id={gid} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={color} stopOpacity="0.75" />
+          <stop offset="100%" stopColor={color} stopOpacity="1" />
+        </linearGradient>
+      </defs>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#EAE4D5" strokeWidth="11" />
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke={`url(#${gid})`} strokeWidth="11"
+        strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" transform="rotate(-90 40 40)"
+        style={{ filter: `drop-shadow(0 1px 2px ${color}55)` }} />
+      <text x="40" y="45" textAnchor="middle" fontSize="14" fontWeight="700" fill={color} fontFamily="'Bricolage Grotesque', Georgia, serif">{pct}%</text>
     </svg>
   );
 }
@@ -942,9 +961,9 @@ function DonutChart({ pct, color, size = 90 }) {
 function MiniCompareBars({ a, b, color }) {
   const max = Math.max(1, a, b);
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 28, marginTop: 8 }}>
-      <div style={{ width: 10, height: `${Math.max(4, (a / max) * 28)}px`, background: "#DCD5C6", borderRadius: 2 }} title="Last month" />
-      <div style={{ width: 10, height: `${Math.max(4, (b / max) * 28)}px`, background: color, borderRadius: 2 }} title="This month" />
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 30, marginTop: 8 }}>
+      <div style={{ width: 12, height: `${Math.max(4, (a / max) * 30)}px`, background: "#DCD5C6", borderRadius: "3px 3px 1px 1px" }} title="Last month" />
+      <div style={{ width: 12, height: `${Math.max(4, (b / max) * 30)}px`, background: `linear-gradient(180deg, ${color}CC, ${color})`, borderRadius: "3px 3px 1px 1px", boxShadow: `0 1px 4px ${color}44` }} title="This month" />
     </div>
   );
 }
@@ -1133,10 +1152,10 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
       {/* Minimal room-composition bar — visual complement to the numbers above */}
       {all.length > 0 && (
         <div style={{ marginBottom: 18 }}>
-          <div style={{ display: "flex", borderRadius: 10, overflow: "hidden", height: 14, boxShadow: "0 1px 3px #0001" }}>
-            {fullRooms > 0 && <div style={{ width: `${(fullRooms/all.length)*100}%`, background: "#A8481F" }} title={`${fullRooms} full`} />}
-            {partialRooms > 0 && <div style={{ width: `${(partialRooms/all.length)*100}%`, background: "#A9822F" }} title={`${partialRooms} partial`} />}
-            {emptyRooms > 0 && <div style={{ width: `${(emptyRooms/all.length)*100}%`, background: "#3D7A6E" }} title={`${emptyRooms} empty`} />}
+          <div style={{ display: "flex", borderRadius: 10, overflow: "hidden", height: 16, boxShadow: "0 1px 4px #0002", gap: 2 }}>
+            {fullRooms > 0 && <div style={{ width: `${(fullRooms/all.length)*100}%`, background: "linear-gradient(90deg, #A8481FCC, #A8481F)" }} title={`${fullRooms} full`} />}
+            {partialRooms > 0 && <div style={{ width: `${(partialRooms/all.length)*100}%`, background: "linear-gradient(90deg, #A9822FCC, #A9822F)" }} title={`${partialRooms} partial`} />}
+            {emptyRooms > 0 && <div style={{ width: `${(emptyRooms/all.length)*100}%`, background: "linear-gradient(90deg, #3D7A6ECC, #3D7A6E)" }} title={`${emptyRooms} empty`} />}
           </div>
           <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 12, color: "#57524A", flexWrap: "wrap" }}>
             <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#A8481F", marginRight: 4 }} />Full {fullRooms}</span>
@@ -1190,8 +1209,8 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
                   <span style={{ fontWeight: 600, fontSize: 14 }}>{FLOOR_LABELS[fs.f]}</span>
                   <span style={{ fontSize: 12, color: "#6B6459" }}>{fs.occ}/{fs.beds} beds ({pct}%)</span>
                 </div>
-                <div style={{ height: 7, background: "#F2EEE4", borderRadius: 99, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${pct}%`, background: barColors[idx], borderRadius: 99 }} />
+                <div style={{ height: 8, background: "#F2EEE4", borderRadius: 99, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${barColors[idx]}AA, ${barColors[idx]})`, borderRadius: 99, boxShadow: `0 0 6px ${barColors[idx]}55` }} />
                 </div>
                 <div style={{ marginTop: 5, fontSize: 11, color: "#9C9585" }}>{fs.full} full · {fs.empty} empty · Click to manage →</div>
               </div>
@@ -1563,7 +1582,7 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
               style={{ display: "flex", alignItems: "center", gap: 10, cursor: m.count > 0 ? "pointer" : "default", padding: "4px 6px", borderRadius: 8, background: expandedMonth === m.monthIndex ? "#F6F3EA" : "transparent" }}>
               <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#6B6459" }}>{m.name}</div>
               <div style={{ flex: 1, background: "#F2EEE4", borderRadius: 6, height: 20, position: "relative", overflow: "hidden" }}>
-                <div style={{ width: `${(m.total / maxMonth) * 100}%`, background: m.total > 0 ? "#2B4B43" : "transparent", height: "100%", borderRadius: 6, transition: "width 0.3s" }} />
+                <div style={{ width: `${(m.total / maxMonth) * 100}%`, background: m.total > 0 ? "linear-gradient(90deg, #2B4B4399, #2B4B43)" : "transparent", height: "100%", borderRadius: 6, transition: "width 0.3s", boxShadow: m.total > 0 ? "0 0 5px #2B4B4344" : "none" }} />
               </div>
               <div style={{ width: 90, textAlign: "right", fontSize: 12.5, fontWeight: 700, color: "#1D3833" }}>₹{m.total.toLocaleString("en-IN")}</div>
               <div style={{ width: 22, textAlign: "right", fontSize: 10.5, color: "#9C9585" }}>{m.count}</div>
@@ -1597,43 +1616,25 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
 // ── RENT DUE PAGE ─────────────────────────────────────────────
 // Shared receipt PDF generator — used both for a freshly-marked-paid tenant
 // and for reprinting any past payment from the permanent ledger in Reports.
-// NOTE: visual redesign of this receipt is planned as the NEXT step (after
-// the color-theme pass) — left functionally identical for now so nothing
-// about payment records/printing changes mid-theme-update.
 function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amount, mode, receiptNo, cycleNote, note = "", docTitle = "Rent Receipt", amountLabel = "AMOUNT PAID", fileTag = "" }) {
   const { jsPDF } = window.jspdf || {};
   if (!jsPDF) { alert("PDF library still loading — try again in a moment."); return; }
 
-  const PAGE_W = 320, MARGIN = 24, CONTENT_W = PAGE_W - MARGIN * 2;
-  // Deposit receipts get a blue accent, rent receipts get green — matches the
-  // same color language used for "held/blue" vs "paid/green" in the app itself.
-  const isDeposit = /deposit/i.test(docTitle);
-  const accent = isDeposit ? [29, 78, 216] : [21, 128, 61];
-  const accentTint = isDeposit ? [239, 246, 255] : [240, 253, 244];
+  const PAGE_W = 340, MARGIN = 26, CONTENT_W = PAGE_W - MARGIN * 2;
 
-  const doc = new jsPDF({ unit: "pt", format: [PAGE_W, 540] });
+  // Rent receipts use the pine brand color; a deposit COLLECTED uses ochre
+  // (a distinct "money coming in, held" cue); a deposit RETURN uses a muted
+  // stone tone (money going back out — deliberately quieter than the other two).
+  const isReturn = /return/i.test(docTitle);
+  const isDeposit = /deposit/i.test(docTitle) && !isReturn;
+  const accent = isReturn ? [107, 100, 89] : isDeposit ? [184, 98, 46] : [43, 75, 67];
+  const accentTint = isReturn ? [243, 240, 234] : isDeposit ? [253, 241, 231] : [231, 239, 234];
+  const inkSoft = [107, 100, 89];
+  const inkStrong = [29, 56, 51];
+  const hairline = [220, 213, 198];
 
-  // ── HEADER BAND — solid navy letterhead with hostel name, doc type/receipt
-  // no. in gold, and the hostel's address/phone/landmark underneath, so the
-  // receipt is self-identifying even if it's printed loose or forwarded. ──
-  doc.setFillColor(26, 35, 50);
-  doc.rect(0, 0, PAGE_W, 100, "F");
-
-  doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.setTextColor(255, 255, 255);
-  doc.text("Turiya Hostel", MARGIN, 28);
-
-  doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(224, 168, 62);
-  doc.text(`${docTitle.toUpperCase()} · NO. ${receiptNo}`, MARGIN, 41);
-
-  doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(198, 208, 224);
-  const addrLines = doc.splitTextToSize(HOSTEL_ADDRESS, CONTENT_W);
-  doc.text(addrLines, MARGIN, 53);
-  const afterAddrY = 53 + (addrLines.length - 1) * 8.5;
-
-  doc.setFontSize(7); doc.setTextColor(224, 168, 62);
-  doc.text(`Ph: ${HOSTEL_PHONE}   |   ${HOSTEL_LANDMARK}`, MARGIN, afterAddrY + 12);
-
-  // ── BODY ROWS ──
+  // ── Precompute row content BEFORE creating the doc, so the page height can
+  // fit the content exactly — no awkward dead space, no clipped notes. ──
   const rows = [
     ["Tenant", name],
     ["Room", `${floorLabel} - Room ${roomNumber}`],
@@ -1643,47 +1644,91 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
     ["Mode", mode || "-"],
     ["Cycle", cycleNote || "-"],
   ];
-  // Free-text notes are a separate row from cycle info, and only shown when
-  // actually provided — this used to be conflated into one confusing "Note"
-  // field that mixed billing-cycle text with anything the staff typed in.
   if (note && note.trim()) rows.push(["Notes", note.trim()]);
 
-  let y = 128;
+  // Measure with a scratch doc (jsPDF needs an instance to measure text,
+  // but page size can be resized after creation — so measure first, resize once).
+  const scratch = new jsPDF({ unit: "pt", format: [PAGE_W, 800] });
+  scratch.setFont("helvetica", "bold"); scratch.setFontSize(10.5);
+  let rowsHeight = 0;
+  const rowLineCounts = rows.map(([, value]) => scratch.splitTextToSize(String(value), 184).length);
+  rowLineCounts.forEach(lines => { rowsHeight += 25 + (lines - 1) * 12; });
+
+  const HEADER_H = 108;
+  const BODY_TOP = HEADER_H + 22;
+  const AMOUNT_BOX_H = 76;
+  const AMOUNT_GAP = 16;
+  const FOOTER_H = 46;
+  const totalH = Math.max(460, BODY_TOP + rowsHeight + AMOUNT_GAP + AMOUNT_BOX_H + FOOTER_H);
+
+  const doc = new jsPDF({ unit: "pt", format: [PAGE_W, totalH] });
+
+  // ── HEADER — pine letterhead, hostel name, doc type/receipt no. in ochre,
+  // address block underneath so the receipt self-identifies even loose or forwarded. ──
+  doc.setFillColor(29, 56, 51);
+  doc.rect(0, 0, PAGE_W, HEADER_H, "F");
+
+  doc.setFont("helvetica", "bold"); doc.setFontSize(19); doc.setTextColor(241, 239, 233);
+  doc.text("Turiya Girls Hostel", MARGIN, 30);
+
+  // thin ochre rule under the name, a small brand detail
+  doc.setDrawColor(184, 98, 46); doc.setLineWidth(1.4);
+  doc.line(MARGIN, 38, MARGIN + 64, 38);
+
+  doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(216, 143, 88);
+  doc.text(`${docTitle.toUpperCase()} · NO. ${receiptNo}`, MARGIN, 52);
+
+  doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(191, 201, 195);
+  const addrLines = doc.splitTextToSize(HOSTEL_ADDRESS, CONTENT_W);
+  doc.text(addrLines, MARGIN, 65);
+  const afterAddrY = 65 + (addrLines.length - 1) * 8.5;
+
+  doc.setFontSize(7); doc.setTextColor(216, 143, 88);
+  doc.text(`Ph: ${HOSTEL_PHONE}   |   ${HOSTEL_LANDMARK}`, MARGIN, afterAddrY + 12);
+
+  // ── BODY ROWS — label/value pairs with a soft hairline under each ──
+  let y = BODY_TOP;
   doc.setFontSize(10.5);
-  rows.forEach(([label, value]) => {
-    doc.setFont("helvetica", "normal"); doc.setTextColor(100, 116, 139); doc.text(label, MARGIN, y);
-    doc.setFont("helvetica", "bold"); doc.setTextColor(15, 23, 42);
-    const valueLines = doc.splitTextToSize(String(value), 170);
-    doc.text(valueLines, PAGE_W - MARGIN, y, { align: "right" });
-    doc.setDrawColor(226, 232, 240); doc.setLineWidth(0.75);
-    doc.line(MARGIN, y + 8 + (valueLines.length - 1) * 12, PAGE_W - MARGIN, y + 8 + (valueLines.length - 1) * 12);
-    y += 26 + (valueLines.length - 1) * 12;
+  rows.forEach(([label, value], i) => {
+    const valueLines = rowLineCounts[i];
+    doc.setFont("helvetica", "normal"); doc.setTextColor(...inkSoft); doc.text(label, MARGIN, y);
+    doc.setFont("helvetica", "bold"); doc.setTextColor(...inkStrong);
+    const wrapped = doc.splitTextToSize(String(value), 184);
+    doc.text(wrapped, PAGE_W - MARGIN, y, { align: "right" });
+    const lineY = y + 8 + (valueLines - 1) * 12;
+    doc.setDrawColor(...hairline); doc.setLineWidth(0.75);
+    doc.line(MARGIN, lineY, PAGE_W - MARGIN, lineY);
+    y += 25 + (valueLines - 1) * 12;
   });
 
-  // ── AMOUNT BLOCK — rounded, tinted box so the amount is the clear visual
-  // focal point instead of just another line of text. ──
-  const boxY = y + 14, boxH = 74;
+  // ── AMOUNT BLOCK — the clear focal point of the receipt ──
+  const boxY = y + AMOUNT_GAP, boxH = AMOUNT_BOX_H;
   doc.setFillColor(...accentTint);
   doc.roundedRect(MARGIN, boxY, CONTENT_W, boxH, 10, 10, "F");
   doc.setDrawColor(...accent); doc.setLineWidth(1.2);
   doc.roundedRect(MARGIN, boxY, CONTENT_W, boxH, 10, 10, "S");
 
-  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(100, 116, 139);
-  doc.text(amountLabel, PAGE_W / 2, boxY + 20, { align: "center" });
-  doc.setFont("helvetica", "bold"); doc.setFontSize(26); doc.setTextColor(...accent);
-  doc.text(`Rs ${Number(amount || 0).toLocaleString("en-IN")}`, PAGE_W / 2, boxY + 52, { align: "center" });
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...inkSoft);
+  doc.text(amountLabel, PAGE_W / 2, boxY + 21, { align: "center" });
+  doc.setFont("helvetica", "bold"); doc.setFontSize(27); doc.setTextColor(...accent);
+  doc.text(`Rs ${Number(amount || 0).toLocaleString("en-IN")}`, PAGE_W / 2, boxY + 54, { align: "center" });
 
-  // ── FOOTER ──
-  const footerY = boxY + boxH + 26;
-  doc.setDrawColor(226, 232, 240); doc.setLineWidth(0.75);
-  doc.line(MARGIN, footerY - 14, PAGE_W - MARGIN, footerY - 14);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(150, 160, 175);
+  // ── FOOTER — a dashed "tear line" for a genuine receipt feel, then the fine print ──
+  const footerY = boxY + boxH + 24;
+  doc.setDrawColor(...hairline);
+  doc.setLineDashPattern([2.5, 2.5], 0);
+  doc.setLineWidth(1);
+  doc.line(MARGIN, footerY - 16, PAGE_W - MARGIN, footerY - 16);
+  doc.setLineDashPattern([], 0);
+
+  doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...inkSoft);
   doc.text("This is a system-generated receipt. Keep it for your records.", PAGE_W / 2, footerY, { align: "center" });
 
   const fileDate = istDateStr(paidDate);
   const safeName = (name || "tenant").trim().replace(/[^a-zA-Z0-9]+/g, "_");
   doc.save(`${safeName}_${fileTag ? fileTag + "_" : ""}${fileDate}.pdf`);
 }
+
 
 function RentPage({ rooms, setRooms, today }) {
   const [filter, setFilter] = useState("all");
@@ -2511,10 +2556,10 @@ function DepositReportsPanel({ depositsLog, loading }) {
               <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#6B6459" }}>{m.name}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ background: "#E7EFEA", borderRadius: 4, height: 9, marginBottom: 2, overflow: "hidden" }}>
-                  <div style={{ width: `${(m.collectedTotal / maxVal) * 100}%`, background: "#2B4B43", height: "100%" }} />
+                  <div style={{ width: `${(m.collectedTotal / maxVal) * 100}%`, background: "linear-gradient(90deg, #2B4B4399, #2B4B43)", height: "100%" }} />
                 </div>
                 <div style={{ background: "#F2EEE4", borderRadius: 4, height: 9, overflow: "hidden" }}>
-                  <div style={{ width: `${(m.returnedTotal / maxVal) * 100}%`, background: "#9C9585", height: "100%" }} />
+                  <div style={{ width: `${(m.returnedTotal / maxVal) * 100}%`, background: "linear-gradient(90deg, #9C958599, #9C9585)", height: "100%" }} />
                 </div>
               </div>
               <div style={{ width: 85, textAlign: "right", fontSize: 11.5, fontWeight: 700, color: "#1D3833" }}>₹{m.collectedTotal.toLocaleString("en-IN")}</div>
@@ -4310,6 +4355,19 @@ function App() {
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+
+  const [clockTick, setClockTick] = useState(0);
+  // `today` is only recomputed when App re-renders — and without this,
+  // nothing forces that to happen on its own. The session-refresh timer
+  // below only touches localStorage, not React state, so a tab left open
+  // overnight (e.g. a reception desk PC) would keep showing yesterday's
+  // rent-due/overdue counts until any click happened to trigger a re-render.
+  // A cheap periodic tick keeps "today" — and every due-date calculation
+  // downstream of it — honest without needing a full page reload.
+  useEffect(() => {
+    const tick = setInterval(() => setClockTick(x => x + 1), 5 * 60 * 1000); // every 5 minutes
+    return () => clearInterval(tick);
+  }, []);
 
   const today = istNow();
 
