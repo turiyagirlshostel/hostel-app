@@ -2040,6 +2040,25 @@ function RentPage({ rooms, setRooms, today }) {
       await undoCycleEntry(t, cycles[cycles.length - 1].entry);
       return;
     }
+    // Safety net: tenantCycleChain relies on the payments table having the
+    // event_type / prev_rent_paid_on columns (added by a one-time SQL
+    // migration). If those columns are missing, every logged payment comes
+    // back with event_type = null, so tenantCycleChain ALWAYS reports zero
+    // cycles — even when several "+ Add Cycle" clicks really happened. In
+    // that situation we cannot tell apart "one real payment" from "several
+    // stacked cycles we just can't see," so we refuse to guess and risk
+    // wiping cycles the person didn't intend to undo.
+    const tenantRows = (paymentsLog || []).filter(p => p.tenant_id === t.dbId);
+    if (tenantRows.length > 1) {
+      alert(
+        "Can't safely undo: this tenant has more than one payment on record, but this app can't tell them apart yet because the database is missing a one-time update.\n\n" +
+        "Run this once in Supabase's SQL editor, then reload:\n\n" +
+        "alter table payments add column if not exists event_type text;\n" +
+        "alter table payments add column if not exists prev_rent_paid_on timestamptz;\n\n" +
+        "Undo has been stopped so nothing was changed."
+      );
+      return;
+    }
     const receiptNo = t.rentReceiptNo;
     await patchTenant(
       t,
@@ -2961,15 +2980,24 @@ function RentPage({ rooms, setRooms, today }) {
         const hasCycles = cycles.length > 0;
         const lastCycle = hasCycles ? cycles[cycles.length - 1] : null;
         const restoreDate = hasCycles ? lastCycle.entry.prev_rent_paid_on : null;
+        // Same safety check as undoPaid() itself: if the chain came back
+        // empty but this tenant clearly has more than one payment logged,
+        // the database is missing the migration columns and we genuinely
+        // cannot tell what's safe to undo — warn here, before the click,
+        // not just after via an alert.
+        const tenantRows = (paymentsLog || []).filter(p => p.tenant_id === undoPaidConfirm.dbId);
+        const migrationMissing = !hasCycles && tenantRows.length > 1;
         return (
         <div onClick={() => setUndoPaidConfirm(null)} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 210, padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 340 }}>
             <div style={{ fontSize: 40, textAlign: "center", marginBottom: 8 }}>⚠️</div>
             <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>
-              {hasCycles ? "Undo the most recent cycle?" : "Undo this payment?"}
+              {migrationMissing ? "Can't safely undo yet" : hasCycles ? "Undo the most recent cycle?" : "Undo this payment?"}
             </div>
             <div style={{ fontSize: 13, color: "#6B6459", textAlign: "center", marginBottom: 18 }}>
-              {hasCycles ? (
+              {migrationMissing ? (
+                <>This tenant has <b>{tenantRows.length} payments</b> on record, but the database is missing a one-time update needed to tell them apart safely. Undoing right now would reset ALL of them at once. Run the SQL migration (see the setup note), reload, then try again.</>
+              ) : hasCycles ? (
                 <>This removes only the <b>last</b> cycle added for <b>{undoPaidConfirm.name}</b>{restoreDate ? <> — their paid-through date rolls back to <b>{fmtDateIST(new Date(restoreDate), { day: "numeric", month: "short", year: "numeric" })}</b></> : ""}. The {cycles.length - 1} cycle{cycles.length - 1 !== 1 ? "s" : ""} before it stay exactly as they are.</>
               ) : (
                 <><b>{undoPaidConfirm.name}</b> will show up as due again, and their "Paid" status for this cycle will be removed. This does not delete their permanent payment record in Reports.</>
@@ -2977,9 +3005,11 @@ function RentPage({ rooms, setRooms, today }) {
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setUndoPaidConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
-              <button onClick={async () => { const t = undoPaidConfirm; setUndoPaidConfirm(null); await undoPaid(t); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#A83D2A", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
-                Yes, Undo
-              </button>
+              {!migrationMissing && (
+                <button onClick={async () => { const t = undoPaidConfirm; setUndoPaidConfirm(null); await undoPaid(t); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#A83D2A", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                  Yes, Undo
+                </button>
+              )}
             </div>
           </div>
         </div>
