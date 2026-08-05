@@ -2030,6 +2030,16 @@ function RentPage({ rooms, setRooms, today }) {
     return { nowIso, nextPaidOnIso, receiptNo, finalMode };
   }
   async function undoPaid(t) {
+    // If this tenant has "+ Add Cycle" advances stacked on top of their
+    // original payment, undoing should only ever remove the MOST RECENT
+    // one — never wipe the whole stack back to "not paid at all". This
+    // makes "Undo Paid" behave identically to the per-cycle Undo button:
+    // always exactly one step back.
+    const cycles = tenantCycleChain(t);
+    if (cycles.length > 0) {
+      await undoCycleEntry(t, cycles[cycles.length - 1].entry);
+      return;
+    }
     const receiptNo = t.rentReceiptNo;
     await patchTenant(
       t,
@@ -2559,6 +2569,19 @@ function RentPage({ rooms, setRooms, today }) {
                         <span style={{ background: isPaid ? "#E4EFE6" : isSnoozed ? "#EDE3F1" : rs.bg, color: isPaid ? "#2F6B44" : isSnoozed ? "#6B4E86" : rs.color, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 99, border: `1px solid ${borderColor}44`, whiteSpace: "nowrap" }}>
                           {isPaid ? "✅ Paid" : isSnoozed ? `⏰ Snoozed to ${fmtDateIST(new Date(t.rentSnoozedUntil), { day: "numeric", month: "short" })}` : `${rs.icon} ${rs.label}`}
                         </span>
+                        {/* Shows how many extra cycles are stacked on top of the
+                            normal payment, right where you already see "Paid" —
+                            so a tenant who's paid 10 months ahead is obvious at
+                            a glance without opening the Cycles Added list below. */}
+                        {isPaid && filter === "paid" && (() => {
+                          const n = tenantCycleChain(t).length;
+                          if (n === 0) return null;
+                          return (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: "#8C6215", background: "#FBF3E1", padding: "2px 8px", borderRadius: 99, whiteSpace: "nowrap" }}>
+                              🔮 {n} cycle{n !== 1 ? "s" : ""} ahead
+                            </span>
+                          );
+                        })()}
                         {/* Countdown chip — always shown, in every tab, on
                             every card (paid, unpaid, snoozed) — so you don't
                             need to switch to the dedicated Countdown tab
@@ -2930,14 +2953,27 @@ function RentPage({ rooms, setRooms, today }) {
         </div>
       )}
 
-      {/* Undo Paid confirmation */}
-      {undoPaidConfirm && (
+      {/* Undo Paid confirmation — text is computed from the tenant's actual
+          cycle chain, so it always says exactly what undoPaid() will do:
+          roll back the ONE most recent cycle, never the whole stack. */}
+      {undoPaidConfirm && (() => {
+        const cycles = tenantCycleChain(undoPaidConfirm);
+        const hasCycles = cycles.length > 0;
+        const lastCycle = hasCycles ? cycles[cycles.length - 1] : null;
+        const restoreDate = hasCycles ? lastCycle.entry.prev_rent_paid_on : null;
+        return (
         <div onClick={() => setUndoPaidConfirm(null)} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 210, padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 340 }}>
             <div style={{ fontSize: 40, textAlign: "center", marginBottom: 8 }}>⚠️</div>
-            <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>Undo this payment?</div>
+            <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>
+              {hasCycles ? "Undo the most recent cycle?" : "Undo this payment?"}
+            </div>
             <div style={{ fontSize: 13, color: "#6B6459", textAlign: "center", marginBottom: 18 }}>
-              <b>{undoPaidConfirm.name}</b> will show up as due again, and their "Paid" status for this cycle will be removed. This does not delete their permanent payment record in Reports.
+              {hasCycles ? (
+                <>This removes only the <b>last</b> cycle added for <b>{undoPaidConfirm.name}</b>{restoreDate ? <> — their paid-through date rolls back to <b>{fmtDateIST(new Date(restoreDate), { day: "numeric", month: "short", year: "numeric" })}</b></> : ""}. The {cycles.length - 1} cycle{cycles.length - 1 !== 1 ? "s" : ""} before it stay exactly as they are.</>
+              ) : (
+                <><b>{undoPaidConfirm.name}</b> will show up as due again, and their "Paid" status for this cycle will be removed. This does not delete their permanent payment record in Reports.</>
+              )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setUndoPaidConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
@@ -2947,7 +2983,8 @@ function RentPage({ rooms, setRooms, today }) {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Undo Cycle confirmation — undoing an earlier cycle cascades and
           removes every cycle added after it too, since each one was built
