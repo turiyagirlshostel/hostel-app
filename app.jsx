@@ -822,7 +822,12 @@ function nextDueBoundaryForTenant(t, paidOnIso) {
 // next-due boundary first via nextDueBoundaryForTenant, then reads one
 // cycle backward from there — never assumes the input is already that
 // boundary, since for a raw (non-aligned) payment date it isn't.
-function cyclePeriodLabel(t, paidOnRefIso) {
+// Shared boundary math for a covered-period reference: returns the exact
+// start/end dates of the cycle that paidOnRefIso satisfies, plus whether
+// it's a 15-day cycle. Used by BOTH the printed "Cycle" label and the
+// receipt number below, so they always agree with each other — the number
+// on a receipt always matches the period line printed under it.
+function cyclePeriodBounds(t, paidOnRefIso) {
   if (!paidOnRefIso || !t.admissionDate) return null;
   const boundary = nextDueBoundaryForTenant(t, paidOnRefIso);
   if (!boundary) return null;
@@ -837,10 +842,53 @@ function cyclePeriodLabel(t, paidOnRefIso) {
     const daysInPrevMonth = new Date(y, m, 0).getDate();
     periodStart = new Date(y, m - 1, Math.min(dueDay, daysInPrevMonth));
   }
+  return { periodStart, periodEnd, is15 };
+}
+
+function cyclePeriodLabel(t, paidOnRefIso) {
+  const bounds = cyclePeriodBounds(t, paidOnRefIso);
+  if (!bounds) return null;
+  const { periodStart, periodEnd } = bounds;
   const sameMonth = periodStart.getMonth() === periodEnd.getMonth() && periodStart.getFullYear() === periodEnd.getFullYear();
   const startLabel = fmtDateIST(periodStart, sameMonth ? { day: "numeric" } : { day: "numeric", month: "short" });
   const endLabel = fmtDateIST(periodEnd, { day: "numeric", month: "short", year: "numeric" });
   return `${startLabel} – ${endLabel}`;
+}
+
+// Short "which cycle is this" code for the receipt NUMBER itself — e.g.
+// "MAR26" for a monthly cycle starting in March 2026, or "05MAR26" for a
+// 15-day cycle starting on the 5th. Built from the exact same bounds as
+// the label above, so a receipt's number always matches its printed period.
+function receiptPeriodCode(t, paidOnRefIso) {
+  const bounds = cyclePeriodBounds(t, paidOnRefIso);
+  if (!bounds) return null;
+  const { periodStart, is15 } = bounds;
+  const mon = fmtDateIST(periodStart, { month: "short" }).toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
+  const yy = fmtDateIST(periodStart, { year: "2-digit" });
+  return is15 ? `${fmtDateIST(periodStart, { day: "2-digit" })}${mon}${yy}` : `${mon}${yy}`;
+}
+
+// First+last initials for the receipt number, e.g. "Sunita Sahu" -> "SS";
+// a single-word name falls back to its first 2 letters.
+function initialsOf(name) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "XX";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// Rent-receipt number format that's verifiable at a glance without opening
+// the PDF: RC-<PERIOD>-F<floor>R<room>B<bed>-<initials>-<HHMMSS>
+// e.g. "RC-MAR26-F1R12B2-SS-143022" = March 2026 rent, Floor 1 Room 12 Bed 2,
+// Sunita Sahu, generated at 14:30:22. Returns null for daily billing (no
+// cycle concept) — callers fall back to the old timestamp-only generateReceiptNo.
+function generateRentReceiptNo(t, cycleRefIso, nowIso) {
+  const periodCode = receiptPeriodCode(t, cycleRefIso);
+  if (!periodCode) return null;
+  const bed = t.bed || (t.bedIndex != null ? t.bedIndex + 1 : "?");
+  const roomTag = `F${t.floor}R${t.roomNumber}B${bed}`;
+  const tp = istParts(new Date(nowIso));
+  return `RC-${periodCode}-${roomTag}-${initialsOf(t.name)}-${tp.hour}${tp.minute}${tp.second}`;
 }
 
 const inputStyle = {
@@ -1867,7 +1915,8 @@ function RentPage({ rooms, setRooms, today }) {
 
   async function markPaid(t, paymentMode, note = "") {
     const nowIso = new Date().toISOString();
-    const receiptNo = generateReceiptNo(nowIso);
+    const isDaily = (t.billingType || "monthly") === "daily";
+    const receiptNo = (!isDaily && generateRentReceiptNo(t, nowIso, nowIso)) || generateReceiptNo(nowIso);
     const finalMode = paymentMode;
     await patchTenant(
       t,
@@ -1945,7 +1994,7 @@ function RentPage({ rooms, setRooms, today }) {
     const nextBoundary = currentBoundary;
     const nextPaidOnIso = nextBoundary.toISOString();
     const nowIso = new Date().toISOString();
-    const receiptNo = generateReceiptNo(nowIso);
+    const receiptNo = generateRentReceiptNo(t, nextPaidOnIso, nowIso) || generateReceiptNo(nowIso);
     const finalMode = paymentMode;
     await patchTenant(
       t,
@@ -2560,33 +2609,46 @@ function RentPage({ rooms, setRooms, today }) {
                     {isPaid && filter === "paid" && (() => {
                       const cycles = tenantCycleChain(t);
                       if (cycles.length === 0) return null;
+                      // Precompute a human month label for every cycle up front (e.g.
+                      // "Mar 2026") so the list AND the undo-confirmation modal can
+                      // both refer to cycles by month instead of an opaque "Cycle N" —
+                      // that's what actually identifies a cycle to you at a glance.
+                      const labeled = cycles.map((c, i) => {
+                        const boundaryAfter = i < cycles.length - 1 ? cycles[i + 1].entry.prev_rent_paid_on : t.rentPaidOn;
+                        const bounds = cyclePeriodBounds(t, boundaryAfter);
+                        const monthLabel = bounds ? fmtDateIST(bounds.periodStart, { month: "short", year: "numeric" }) : `Cycle ${i + 1}`;
+                        return { ...c, boundaryAfter, monthLabel };
+                      });
                       return (
                         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #DCD5C6" }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>
-                            Cycles added ({cycles.length})
+                            Cycles added ({labeled.length})
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            {cycles.map((c, i) => {
-                              const boundaryAfter = i < cycles.length - 1 ? cycles[i + 1].entry.prev_rent_paid_on : t.rentPaidOn;
-                              return (
+                            {labeled.map((c, i) => (
                               <div key={c.entry.receipt_no || i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#F6F3EA", borderRadius: 8, padding: "6px 10px" }}>
                                 <div style={{ fontSize: 12, color: "#3A362E" }}>
-                                  Cycle {i + 1} · {fmtDateIST(new Date(c.entry.paid_at), { day: "numeric", month: "short" })} · ₹{c.entry.amount} · {c.entry.payment_mode}
+                                  <b>{c.monthLabel}</b> · paid {fmtDateIST(new Date(c.entry.paid_at), { day: "numeric", month: "short" })} · ₹{c.entry.amount} · {c.entry.payment_mode}
                                 </div>
                                 <div style={{ display: "flex", gap: 6 }}>
                                   <button onClick={() => printReceipt(
                                     { ...t, rentPaymentMode: c.entry.payment_mode, rentReceiptNo: c.entry.receipt_no, rentNote: c.entry.note || "" },
-                                    { paidAtIso: c.entry.paid_at, cycleRefIso: boundaryAfter }
+                                    { paidAtIso: c.entry.paid_at, cycleRefIso: c.boundaryAfter }
                                   )} style={{ padding: "4px 10px", borderRadius: 8, border: "1.5px solid #A9C4B8", background: "#E7EFEA", color: "#2B4B43", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
                                     🧾
                                   </button>
-                                  <button disabled={isBusy} onClick={() => setUndoCycleConfirm({ t, entry: c.entry, cycleNumber: i + 1, removesAfter: cycles.length - (i + 1) })} style={{ padding: "4px 10px", borderRadius: 8, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 11, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                                  <button disabled={isBusy} onClick={() => setUndoCycleConfirm({
+                                    t,
+                                    entry: c.entry,
+                                    monthLabel: c.monthLabel,
+                                    restoreDate: c.entry.prev_rent_paid_on,
+                                    laterLabels: labeled.slice(i + 1).map(x => x.monthLabel),
+                                  })} style={{ padding: "4px 10px", borderRadius: 8, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 11, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
                                     Undo
                                   </button>
                                 </div>
                               </div>
-                              );
-                            })}
+                            ))}
                           </div>
                         </div>
                       );
@@ -2865,11 +2927,11 @@ function RentPage({ rooms, setRooms, today }) {
         <div onClick={() => setUndoCycleConfirm(null)} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 210, padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 340 }}>
             <div style={{ fontSize: 40, textAlign: "center", marginBottom: 8 }}>⚠️</div>
-            <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>Undo Cycle {undoCycleConfirm.cycleNumber}?</div>
+            <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>Undo {undoCycleConfirm.monthLabel}?</div>
             <div style={{ fontSize: 13, color: "#6B6459", textAlign: "center", marginBottom: 18 }}>
-              <b>{undoCycleConfirm.t.name}</b>'s paid-through date will roll back to before this cycle was added, and this cycle's ledger entry will be removed.
-              {undoCycleConfirm.removesAfter > 0 && (
-                <> <b>This will also undo the {undoCycleConfirm.removesAfter} cycle{undoCycleConfirm.removesAfter !== 1 ? "s" : ""} added after it</b>, since each one was built on top of this one.</>
+              <b>{undoCycleConfirm.t.name}</b>'s paid-through date rolls back to <b>{undoCycleConfirm.restoreDate ? fmtDateIST(new Date(undoCycleConfirm.restoreDate), { day: "numeric", month: "short", year: "numeric" }) : "before this cycle"}</b>.
+              {undoCycleConfirm.laterLabels.length > 0 && (
+                <> This also removes <b>{undoCycleConfirm.laterLabels.join(", ")}</b>, since {undoCycleConfirm.laterLabels.length > 1 ? "they were" : "it was"} added after {undoCycleConfirm.monthLabel}.</>
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
