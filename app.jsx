@@ -829,6 +829,7 @@ function nextDueBoundaryForTenant(t, paidOnIso) {
 // on a receipt always matches the period line printed under it.
 function cyclePeriodBounds(t, paidOnRefIso) {
   if (!paidOnRefIso || !t.admissionDate) return null;
+  if ((t.billingType || "monthly") === "daily") return null; // daily billing has no "cycle"
   const boundary = nextDueBoundaryForTenant(t, paidOnRefIso);
   if (!boundary) return null;
   const is15 = (t.billingType || "monthly") === "15day";
@@ -888,7 +889,8 @@ function generateRentReceiptNo(t, cycleRefIso, nowIso) {
   const bed = t.bed || (t.bedIndex != null ? t.bedIndex + 1 : "?");
   const roomTag = `F${t.floor}R${t.roomNumber}B${bed}`;
   const tp = istParts(new Date(nowIso));
-  return `RC-${periodCode}-${roomTag}-${initialsOf(t.name)}-${tp.hour}${tp.minute}${tp.second}`;
+  const ms = String(new Date(nowIso).getMilliseconds()).padStart(3, "0");
+  return `RC-${periodCode}-${roomTag}-${initialsOf(t.name)}-${tp.hour}${tp.minute}${tp.second}${ms}`;
 }
 
 const inputStyle = {
@@ -1726,7 +1728,7 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
 // ── RENT DUE PAGE ─────────────────────────────────────────────
 // Shared receipt PDF generator — used both for a freshly-marked-paid tenant
 // and for reprinting any past payment from the permanent ledger in Reports.
-function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amount, mode, receiptNo, cycleNote, note = "", docTitle = "Rent Receipt", amountLabel = "AMOUNT PAID", fileTag = "" }) {
+function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amount, mode, receiptNo, cycleNote, note = "", docTitle = "Rent Receipt", amountLabel = "AMOUNT PAID", fileTag = "", periodBadge = null }) {
   const { jsPDF } = window.jspdf || {};
   if (!jsPDF) { alert("PDF library still loading — try again in a moment."); return; }
 
@@ -1764,7 +1766,7 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
   const rowLineCounts = rows.map(([, value]) => scratch.splitTextToSize(String(value), 184).length);
   rowLineCounts.forEach(lines => { rowsHeight += 25 + (lines - 1) * 12; });
 
-  const HEADER_H = 108;
+  const HEADER_H = 108 + (periodBadge ? 13 : 0);
   const BODY_TOP = HEADER_H + 22;
   const AMOUNT_BOX_H = 76;
   const AMOUNT_GAP = 16;
@@ -1788,10 +1790,18 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
   doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(216, 143, 88);
   doc.text(`${docTitle.toUpperCase()} · NO. ${receiptNo}`, MARGIN, 52);
 
+  // ── PERIOD BANNER — the answer to "which month is this receipt for?",
+  // right in the header where it can't be missed, not buried in a row below. ──
+  const addrStartY = periodBadge ? 78 : 65;
+  if (periodBadge) {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(255, 255, 255);
+    doc.text(`RENT FOR: ${periodBadge.toUpperCase()}`, MARGIN, 65);
+  }
+
   doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(191, 201, 195);
   const addrLines = doc.splitTextToSize(HOSTEL_ADDRESS, CONTENT_W);
-  doc.text(addrLines, MARGIN, 65);
-  const afterAddrY = 65 + (addrLines.length - 1) * 8.5;
+  doc.text(addrLines, MARGIN, addrStartY);
+  const afterAddrY = addrStartY + (addrLines.length - 1) * 8.5;
 
   doc.setFontSize(7); doc.setTextColor(216, 143, 88);
   doc.text(`Ph: ${HOSTEL_PHONE}   |   ${HOSTEL_LANDMARK}`, MARGIN, afterAddrY + 12);
@@ -2114,7 +2124,13 @@ function RentPage({ rooms, setRooms, today }) {
     const billingType = t.billingType || "monthly";
     const is15 = billingType === "15day";
     const isDaily = billingType === "daily";
+    const periodBounds = !isDaily && cycleRefIso ? cyclePeriodBounds(t, cycleRefIso) : null;
     const periodLabel = !isDaily && cycleRefIso ? cyclePeriodLabel(t, cycleRefIso) : null;
+    const periodBadge = periodBounds
+      ? (periodBounds.is15
+          ? `15-Day Cycle · ${fmtDateIST(periodBounds.periodStart, { day: "numeric", month: "short", year: "numeric" })}`
+          : fmtDateIST(periodBounds.periodStart, { month: "long", year: "numeric" }))
+      : null;
     generateReceiptPDF({
       name: t.name,
       phone: t.phone,
@@ -2124,6 +2140,7 @@ function RentPage({ rooms, setRooms, today }) {
       amount: t.rentAmount,
       mode: t.rentPaymentMode,
       receiptNo,
+      periodBadge,
       cycleNote: isDaily
         ? `Per Day · ${fmtDateIST(paidDate, { day: "numeric", month: "short", year: "numeric" })}`
         : periodLabel
@@ -2736,12 +2753,24 @@ function RentPage({ rooms, setRooms, today }) {
               <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833" }}>Add Another Cycle</div>
               <div style={{ fontSize: 14, color: "#6B6459", marginTop: 8 }}>Did {addCycleModal.name} also pay for another {addCycleModal.billingType === "15day" ? "15-day period" : "month"}?</div>
               {addCycleModal.rentPaidOn && (() => {
+                const paidRef = addCycleModal.rentPaidOn || (addCycleModal.admissionDate + "T00:00:00");
+                const currentBoundary = nextDueBoundaryForTenant(addCycleModal, paidRef);
+                if (!currentBoundary) return null;
+                const bounds = cyclePeriodBounds(addCycleModal, currentBoundary.toISOString());
                 const is15 = addCycleModal.billingType === "15day";
-                const base = new Date(addCycleModal.rentPaidOn);
-                let next;
-                if (is15) next = new Date(base.getTime() + 15 * MS_PER_DAY);
-                else { const y = base.getFullYear(), m = base.getMonth(), d = base.getDate(); const dim = new Date(y, m + 2, 0).getDate(); next = new Date(y, m + 1, Math.min(d, dim)); }
-                return <div style={{ fontSize: 12, color: "#9C9585", marginTop: 6 }}>Will move their "paid till" to {fmtDateIST(next, { day: "numeric", month: "short", year: "numeric" })}</div>;
+                const monthLabel = bounds
+                  ? (is15 ? `15-Day Cycle starting ${fmtDateIST(bounds.periodStart, { day: "numeric", month: "short", year: "numeric" })}` : fmtDateIST(bounds.periodStart, { month: "long", year: "numeric" }))
+                  : null;
+                return (
+                  <>
+                    {monthLabel && (
+                      <div style={{ marginTop: 12, display: "inline-block", background: "#FBF3E1", color: "#8C6215", fontWeight: 800, fontSize: 15, padding: "7px 18px", borderRadius: 10, border: "1.5px solid #E3B45C" }}>
+                        📅 You're adding: {monthLabel}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 12, color: "#9C9585", marginTop: 8 }}>Paid-through will move to {fmtDateIST(currentBoundary, { day: "numeric", month: "short", year: "numeric" })}</div>
+                  </>
+                );
               })()}
               {addCycleModal.rentAmount && (
                 <div style={{ marginTop: 14, display: "inline-block", background: "#E7EFEA", color: "#2B4B43", fontWeight: 600, fontSize: 30, padding: "10px 28px", borderRadius: 14, border: "2.5px solid #A9C4B8", fontFamily: FONT_DISPLAY }}>
