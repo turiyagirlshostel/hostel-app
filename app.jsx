@@ -2243,11 +2243,27 @@ function RentPage({ rooms, setRooms, today }) {
     const isSnoozed = !isPaid && !!rentStatus && isSnoozedNow(t.rentSnoozedUntil, t.rentSnoozedCycleStart, is15 ? rentStatus.cycleStart : getCycleStart(rentStatus.dueDay, today), today);
     return { ...t, rentStatus, isPaid, isSnoozed, is15 };
   });
-  const allDue = categorized.filter(t => !t.isPaid && !t.isSnoozed);
-  const overdue = allDue.filter(t => t.rentStatus.type === "overdue").sort((a, b) => (b.rentStatus.daysOverdue||0) - (a.rentStatus.daysOverdue||0));
-  const dueToday = allDue.filter(t => t.rentStatus.type === "due_today");
-  const dueSoon = allDue.filter(t => t.rentStatus.type === "due_soon");
-  const ok = allDue.filter(t => t.rentStatus.type === "ok");
+  // Overdue/Due Today/Due Soon/Upcoming are grouped by how many days remain
+  // until the NEXT due date — regardless of whether that tenant has already
+  // paid for it. A tenant who paid ahead of time still has a real next due
+  // date, and "Due Soon"/"Upcoming" exist to answer "whose rent is coming up"
+  // — if they only included tenants who hadn't paid yet, those two tabs would
+  // sit empty almost all the time in normal use, since most tenants ARE paid
+  // most of the time. (Overdue/Due Today still end up unpaid-only on their
+  // own — firstMissedBoundary math makes it impossible to be paid up AND
+  // overdue/due-today at once, so nothing needs to special-case that here.)
+  // Snoozed tenants are still excluded everywhere below — that's an explicit
+  // "hide this one" choice, unlike simply having paid.
+  const visibleCyclic = categorized.filter(t => !t.isSnoozed);
+  const overdue = visibleCyclic.filter(t => t.rentStatus.type === "overdue").sort((a, b) => (b.rentStatus.daysOverdue||0) - (a.rentStatus.daysOverdue||0));
+  const dueToday = visibleCyclic.filter(t => t.rentStatus.type === "due_today");
+  const dueSoon = visibleCyclic.filter(t => t.rentStatus.type === "due_soon");
+  const ok = visibleCyclic.filter(t => t.rentStatus.type === "ok");
+  // Paid tab stays a plain "everyone currently paid up" list — independent of
+  // the day-count buckets above (a paid tenant now shows in BOTH their Paid
+  // tab entry and, if within the window, Due Soon/Upcoming — that's
+  // intentional, they're different questions: "who's covered" vs "who's
+  // coming up next").
   const paidList = categorized.filter(t => t.isPaid);
   const snoozedList = categorized.filter(t => t.isSnoozed);
 
@@ -2285,7 +2301,11 @@ function RentPage({ rooms, setRooms, today }) {
     : countdownAll;
 
   let shown = [];
-  if (filter === "all") shown = [...overdue, ...dueToday, ...dueSoon, ...ok, ...paidList];
+  // "All" no longer appends paidList separately — every paid tenant already
+  // shows up through Due Soon/Upcoming above (paid tenants can only ever be
+  // in one of those two, never overdue/due-today), so appending it again
+  // would list them twice.
+  if (filter === "all") shown = [...overdue, ...dueToday, ...dueSoon, ...ok];
   else if (filter === "overdue") shown = overdue;
   else if (filter === "due_today") shown = dueToday;
   else if (filter === "due_soon") shown = dueSoon;
@@ -2314,7 +2334,11 @@ function RentPage({ rooms, setRooms, today }) {
   });
   const sortedKeys = Object.keys(grouped).sort((ka, kb) => grouped[ka][0].rentStatus.daysUntil - grouped[kb][0].rentStatus.daysUntil);
 
-  const totalToCollect = [...dueToday, ...dueSoon].filter(t => t.rentAmount).reduce((s, t) => s + Number(t.rentAmount), 0);
+  // TO COLLECT must stay unpaid-only: dueToday is always unpaid by
+  // construction, but dueSoon can now include tenants who've already paid
+  // ahead (see the visibleCyclic comment above) — without this filter,
+  // their rent would get counted as still owed even though it's collected.
+  const totalToCollect = [...dueToday, ...dueSoon].filter(t => !t.isPaid && t.rentAmount).reduce((s, t) => s + Number(t.rentAmount), 0);
   const totalCollected = paidList.filter(t => t.rentAmount).reduce((s, t) => s + Number(t.rentAmount), 0);
 
   // Calendar-month total: sums every payment actually made since the 1st of
@@ -2380,7 +2404,7 @@ function RentPage({ rooms, setRooms, today }) {
         <div style={{ background: "#FBEEEA", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #DDA79A" }}>
           <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>TO COLLECT</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#C1543C" }}>₹{totalToCollect.toLocaleString("en-IN")}</div>
-          <div style={{ fontSize: 11, color: "#9C9585" }}>{[...dueToday,...dueSoon].filter(t=>t.rentAmount).length} tenants</div>
+          <div style={{ fontSize: 11, color: "#9C9585" }}>{[...dueToday,...dueSoon].filter(t=>!t.isPaid && t.rentAmount).length} tenants</div>
         </div>
         <div style={{ background: "#EBF3EC", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #A8CDB0" }}>
           <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>COLLECTED (this cycle)</div>
