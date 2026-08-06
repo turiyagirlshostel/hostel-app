@@ -879,18 +879,29 @@ function initialsOf(name) {
 }
 
 // Rent-receipt number format that's verifiable at a glance without opening
-// the PDF: RC-<PERIOD>-F<floor>R<room>B<bed>-<initials>-<HHMMSS>
-// e.g. "RC-MAR26-F1R12B2-SS-143022" = March 2026 rent, Floor 1 Room 12 Bed 2,
-// Sunita Sahu, generated at 14:30:22. Returns null for daily billing (no
+// the PDF: RC-<GEN DATE>-F<floor>R<room>B<bed>-<initials>-<CYCLE>
+// e.g. "RC-04AUG26-F1R12B2-SS-MAR26" = generated 4 Aug 2026, Floor 1 Room 12
+// Bed 2, Sunita Sahu, rent covers March 2026. Putting the GENERATION date
+// first (not just a time-of-day like the old format) answers "when was this
+// printed" at a glance; the CYCLE code at the end still answers "which
+// month's rent is this" — the two dates on a receipt are rarely the same
+// (e.g. printing a March receipt in April), so both need to be visible
+// separately, not just one of them. Returns null for daily billing (no
 // cycle concept) — callers fall back to the old timestamp-only generateReceiptNo.
 function generateRentReceiptNo(t, cycleRefIso, nowIso) {
   const periodCode = receiptPeriodCode(t, cycleRefIso);
   if (!periodCode) return null;
   const bed = t.bed || (t.bedIndex != null ? t.bedIndex + 1 : "?");
   const roomTag = `F${t.floor}R${t.roomNumber}B${bed}`;
-  const tp = istParts(new Date(nowIso));
-  const ms = String(new Date(nowIso).getMilliseconds()).padStart(3, "0");
-  return `RC-${periodCode}-${roomTag}-${initialsOf(t.name)}-${tp.hour}${tp.minute}${tp.second}${ms}`;
+  const genDate = new Date(nowIso);
+  const genDay = fmtDateIST(genDate, { day: "2-digit" });
+  const genMon = fmtDateIST(genDate, { month: "short" }).toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
+  const genYr = fmtDateIST(genDate, { year: "2-digit" });
+  // A trailing time-of-day (HHMMSS) is still appended, not for reading but
+  // to guarantee two receipts generated for the same tenant/cycle/day never
+  // collide on the same receipt number.
+  const tp = istParts(genDate);
+  return `RC-${genDay}${genMon}${genYr}-${roomTag}-${initialsOf(t.name)}-${periodCode}-${tp.hour}${tp.minute}${tp.second}`;
 }
 
 const inputStyle = {
