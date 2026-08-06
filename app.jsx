@@ -897,11 +897,16 @@ function generateRentReceiptNo(t, cycleRefIso, nowIso) {
   const genDay = fmtDateIST(genDate, { day: "2-digit" });
   const genMon = fmtDateIST(genDate, { month: "short" }).toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
   const genYr = fmtDateIST(genDate, { year: "2-digit" });
-  // A trailing time-of-day (HHMMSS) is still appended, not for reading but
-  // to guarantee two receipts generated for the same tenant/cycle/day never
-  // collide on the same receipt number.
+  // A trailing time-of-day (HHMMSS + milliseconds) is still appended, not for
+  // reading but to guarantee uniqueness. Milliseconds matter here, not just
+  // seconds: Undo Paid → Mark Paid again (a normal "fix a mis-click" flow)
+  // can easily produce two receipts for the same tenant/cycle within the same
+  // second — seconds-only resolution let those collide on an identical
+  // receipt_no, which is used as the lookup key for editing/deleting ledger
+  // rows, so a collision risks touching the wrong payment record.
   const tp = istParts(genDate);
-  return `RC-${genDay}${genMon}${genYr}-${roomTag}-${initialsOf(t.name)}-${periodCode}-${tp.hour}${tp.minute}${tp.second}`;
+  const ms = String(genDate.getMilliseconds()).padStart(3, "0");
+  return `RC-${genDay}${genMon}${genYr}-${roomTag}-${initialsOf(t.name)}-${periodCode}-${tp.hour}${tp.minute}${tp.second}${ms}`;
 }
 
 const inputStyle = {
