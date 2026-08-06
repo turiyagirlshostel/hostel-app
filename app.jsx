@@ -578,10 +578,26 @@ function getOccupied(room) {
 function istParts(d = new Date()) {
   const fmt = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    // hourCycle is pinned explicitly to h23 (strict 00-23) and hour12 is
+    // deliberately left out — per spec, when both are given, hour12 is
+    // supposed to take precedence over hourCycle, which reopens the exact
+    // ambiguity being avoided here. hourCycle alone has one unambiguous
+    // meaning on every engine. Without this, some browsers represent
+    // midnight as "24" instead of "00" — harmless for display, but
+    // istNow() below feeds this hour straight into the Date constructor,
+    // where an hour of 24 silently rolls the whole date over to the NEXT
+    // day. That would make every due-date comparison run a day ahead for
+    // roughly the first hour after midnight IST — exactly the shape of bug
+    // where a tenant due "today" shows as "+1 day overdue" instead, while
+    // anything using fmtDateIST directly (which doesn't reconstruct a Date
+    // from these parts) stays correct.
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
   });
   const p = {};
   fmt.formatToParts(d).forEach(part => { if (part.type !== "literal") p[part.type] = part.value; });
+  // Defensive clamp on top of hourCycle:"h23" above — belt-and-suspenders in
+  // case some engine still hands back "24" despite the explicit hourCycle.
+  if (p.hour === "24") p.hour = "00";
   return p;
 }
 function istDateStr(d = new Date()) {
