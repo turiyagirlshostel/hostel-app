@@ -684,7 +684,7 @@ function getRentStatus(admissionDate, today, rentPaidOn = null) {
   const daysDiff = Math.round((today - firstMissedBoundary) / (24*60*60*1000));
   if (daysDiff < 0) {
     const daysUntil = -daysDiff;
-    if (daysUntil <= 3) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#C1861F", bg: "#FBF3E1", icon: "🟡", daysUntil, dueDay };
+    if (daysUntil <= 5) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#C1861F", bg: "#FBF3E1", icon: "🟡", daysUntil, dueDay };
     return { type: "ok", label: `Due on ${ordinal(dueDay)}`, color: "#3C8F5C", bg: "#EBF3EC", icon: "🟢", daysUntil, dueDay };
   }
   if (daysDiff === 0) return { type: "due_today", label: "Due Today", color: "#C1543C", bg: "#FBEEEA", icon: "🔴", daysUntil: 0, dueDay };
@@ -780,7 +780,7 @@ function getRentStatus15(admissionDate, today, rentPaidOn = null) {
   const daysDiff = Math.round((today - firstMissedBoundary) / MS_PER_DAY);
   if (daysDiff < 0) {
     const daysUntil = -daysDiff;
-    if (daysUntil <= 3) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#C1861F", bg: "#FBF3E1", icon: "🟡", daysUntil, cycleStart, nextDue };
+    if (daysUntil <= 5) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#C1861F", bg: "#FBF3E1", icon: "🟡", daysUntil, cycleStart, nextDue };
     return { type: "ok", label: `Due on ${dueLabel}`, color: "#3C8F5C", bg: "#EBF3EC", icon: "🟢", daysUntil, cycleStart, nextDue };
   }
   if (daysDiff === 0) return { type: "due_today", label: "Due Today", color: "#C1543C", bg: "#FBEEEA", icon: "🔴", daysUntil: 0, cycleStart, nextDue };
@@ -1209,7 +1209,7 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
             <div onClick={() => setPage("rent")} style={{ background: "#FBF3E1", border: "1.5px solid #E3B45C", borderRadius: 12, padding: "12px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 20 }}>🟡</span>
               <div style={{ flex: 1 }}>
-                <b style={{ color: "#A8701A" }}>Rent due soon</b> — {dueSoon.length} tenant{dueSoon.length > 1 ? "s" : ""} in the next 3 days
+                <b style={{ color: "#A8701A" }}>Rent due soon</b> — {dueSoon.length} tenant{dueSoon.length > 1 ? "s" : ""} in the next 5 days
               </div>
               <span style={{ fontSize: 12, color: "#A8701A", fontWeight: 600 }}>View →</span>
             </div>
@@ -1803,8 +1803,23 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
   doc.setDrawColor(184, 98, 46); doc.setLineWidth(1.4);
   doc.line(MARGIN, 38, MARGIN + 64, 38);
 
-  doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(216, 143, 88);
-  doc.text(`${docTitle.toUpperCase()} · NO. ${receiptNo}`, MARGIN, 52);
+  doc.setFont("helvetica", "bold"); doc.setTextColor(216, 143, 88);
+  // Auto-shrink the receipt-number line to fit the page width instead of
+  // assuming 8.5pt always fits. Room numbering, floor count, or the receipt
+  // format itself can all grow over time (e.g. rooms getting longer labels,
+  // more floors added) — a fixed font size would silently print off the
+  // edge of the page with no warning when that happens. Shrinks in small
+  // steps down to a 6.5pt floor, which stays legible; if even that overflows
+  // (would require a genuinely extreme receipt number), it's left at the
+  // floor size rather than shrunk illegibly small.
+  const headerLine = `${docTitle.toUpperCase()} · NO. ${receiptNo}`;
+  let headerFontSize = 8.5;
+  doc.setFontSize(headerFontSize);
+  while (doc.getTextWidth(headerLine) > CONTENT_W && headerFontSize > 6.5) {
+    headerFontSize -= 0.25;
+    doc.setFontSize(headerFontSize);
+  }
+  doc.text(headerLine, MARGIN, 52);
 
   // ── PERIOD BANNER — the answer to "which month is this receipt for?",
   // right in the header where it can't be missed, not buried in a row below. ──
