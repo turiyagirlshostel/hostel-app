@@ -770,22 +770,32 @@ function getCycleStart15(admissionDate, today) {
 
 function getRentStatus15(admissionDate, today, rentPaidOn = null) {
   if (!admissionDate) return null;
-  // cycleStart/nextDue = the current calendar-elapsed 15-day window, used
-  // separately by isActiveForCycle15 to check payment validity. Kept as-is.
+  // cycleStart = the current calendar-elapsed 15-day window, used SEPARATELY
+  // by isActiveForCycle15 to check payment validity. Kept as-is — this is
+  // deliberately independent of the due-date math below.
   const cycleStart = getCycleStart15(admissionDate, today);
-  const nextDue = new Date(cycleStart.getTime() + 15 * MS_PER_DAY);
-  const dueLabel = fmtDateIST(nextDue, { day: "numeric", month: "short" });
 
   // firstMissedBoundary = the due date actually owed against right now,
   // based on the last REAL payment (or admission if never paid). This is
-  // what decides due_today/due_soon/ok/overdue.
+  // what decides due_today/due_soon/ok/overdue AND is now the single
+  // source of truth for the displayed due date too (see nextDue below) —
+  // it used to be computed separately from the pure calendar-elapsed
+  // cycleStart/nextDue, which only matched firstMissedBoundary if the
+  // tenant had paid exactly on schedule for every cycle since admission.
+  // A single early/late payment made the two drift apart, so the
+  // "N days left" countdown (from firstMissedBoundary) and the due-date
+  // label shown next to it (from the old calendar-elapsed nextDue) could
+  // disagree — e.g. showing "1 day left" alongside a due date that wasn't
+  // actually 1 day away. nextDue is now just an alias for
+  // firstMissedBoundary so the two can never disagree again.
   //
-  // The previous version computed daysUntil from cycleStart/nextDue, which
-  // are pure calendar-elapsed values independent of payment — nextDue is
-  // ALWAYS in the future by construction, so daysUntil was NEVER negative.
-  // Verified by simulation: this made the "overdue" branch permanently
-  // unreachable — a 15-day tenant could never show overdue no matter how
-  // long they went unpaid, even over a 5-year test.
+  // (Historical note: an even older version computed daysUntil from
+  // cycleStart/nextDue directly, which are pure calendar-elapsed values
+  // independent of payment — nextDue was ALWAYS in the future by
+  // construction, so daysUntil was NEVER negative, making the "overdue"
+  // branch permanently unreachable. Verified by a 5-year simulation before
+  // that was fixed. Kept here as documentation of why these two boundaries
+  // must not be computed independently.)
   let firstMissedBoundary;
   if (rentPaidOn) {
     const coveredCycleStart = getCycleStart15(admissionDate, new Date(rentPaidOn));
@@ -793,6 +803,8 @@ function getRentStatus15(admissionDate, today, rentPaidOn = null) {
   } else {
     firstMissedBoundary = new Date(admissionDate + "T00:00:00");
   }
+  const nextDue = firstMissedBoundary;
+  const dueLabel = fmtDateIST(nextDue, { day: "numeric", month: "short" });
   const daysDiff = Math.round((today - firstMissedBoundary) / MS_PER_DAY);
   if (daysDiff < 0) {
     const daysUntil = -daysDiff;
