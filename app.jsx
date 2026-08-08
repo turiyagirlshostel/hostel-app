@@ -697,7 +697,17 @@ function getRentStatus(admissionDate, today, rentPaidOn = null) {
     firstMissedBoundary = getCycleStart(dueDay, ad); // = admission date itself
   }
 
-  const daysDiff = Math.round((today - firstMissedBoundary) / (24*60*60*1000));
+  // Compare calendar dates only, not raw elapsed milliseconds. `today` is
+  // istNow() — the actual current wall-clock time, with real hours/minutes/
+  // seconds — while firstMissedBoundary is always built at midnight. Diffing
+  // the two directly gives a fractional number of days (e.g. -1.375 when
+  // it's 3pm and the due date is 2 calendar days out), and Math.round() on
+  // that silently drops a day once it's past roughly midday IST — showing
+  // "1 day left" for a due date that's actually 2 days away. Stripping the
+  // time-of-day from `today` first makes the diff an exact whole number of
+  // days, so no rounding is needed.
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const daysDiff = Math.round((todayMidnight - firstMissedBoundary) / (24*60*60*1000));
   if (daysDiff < 0) {
     const daysUntil = -daysDiff;
     if (daysUntil <= 5) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#C1861F", bg: "#FBF3E1", icon: "🟡", daysUntil, dueDay };
@@ -805,7 +815,11 @@ function getRentStatus15(admissionDate, today, rentPaidOn = null) {
   }
   const nextDue = firstMissedBoundary;
   const dueLabel = fmtDateIST(nextDue, { day: "numeric", month: "short" });
-  const daysDiff = Math.round((today - firstMissedBoundary) / MS_PER_DAY);
+  // See the matching comment in getRentStatus above: compare calendar dates
+  // only, not raw elapsed milliseconds, or the day-count silently drops a
+  // day once it's past roughly midday IST.
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const daysDiff = Math.round((todayMidnight - firstMissedBoundary) / MS_PER_DAY);
   if (daysDiff < 0) {
     const daysUntil = -daysDiff;
     if (daysUntil <= 5) return { type: "due_soon", label: `Due in ${daysUntil} day${daysUntil>1?"s":""}`, color: "#C1861F", bg: "#FBF3E1", icon: "🟡", daysUntil, cycleStart, nextDue };
