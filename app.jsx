@@ -1008,13 +1008,15 @@ function ContactButtons({ phone, size = "normal" }) {
 
 // ── THEME TOGGLE ─────────────────────────────────────────────
 // A small pill switch (sun/moon) that flips the app between light and dark.
-// Dark mode is implemented as a CSS filter (invert + hue-rotate) on the
-// whole app body rather than a second hand-written palette — this is a
-// single-file app with 1000+ hardcoded hex colors reused for both
-// backgrounds and text, so a per-color light/dark mapping would be both
-// huge and fragile. The filter trick flips every color consistently in
-// one place. The nav bar is deliberately re-inverted back to normal so it
-// keeps its brand color instead of turning pale in dark mode.
+// Dark mode is implemented with a fixed, click-through overlay that uses
+// backdrop-filter (invert + hue-rotate) to flip the colors of whatever is
+// rendered behind it — this is a single-file app with 1000+ hardcoded hex
+// colors reused for both backgrounds and text, so a per-color light/dark
+// mapping would be both huge and fragile. Using backdrop-filter on a
+// standalone overlay (rather than `filter` on an ancestor wrapping the
+// page) matters: `filter` on an ancestor turns any position:fixed
+// descendant (the bottom tab bar, modals, the saving toast) into one
+// positioned relative to that ancestor instead of the real screen.
 function ThemeToggle({ theme, onToggle, compact = false }) {
   const isDark = theme === "dark";
   return (
@@ -1077,7 +1079,7 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
     return (
       <>
         {/* Top mini header */}
-        <div style={{ background: "#1D3833", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 8px #0005", padding: "0 16px", height: 54, display: "flex", alignItems: "center", justifyContent: "space-between", filter: theme === "dark" ? "invert(1) hue-rotate(180deg)" : "none" }}>
+        <div style={{ background: "#1D3833", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 8px #0005", padding: "0 16px", height: 54, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 20 }}>🏨</span>
             <span style={{ fontWeight: 700, fontSize: 17, fontFamily: FONT_DISPLAY }}>Turiya Hostel</span>
@@ -1092,7 +1094,7 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
           </div>
         </div>
         {/* Bottom tab bar */}
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#1D3833", zIndex: 50, display: "flex", borderTop: "1px solid #ffffff15", paddingBottom: "env(safe-area-inset-bottom)", filter: theme === "dark" ? "invert(1) hue-rotate(180deg)" : "none" }}>
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#1D3833", zIndex: 50, display: "flex", borderTop: "1px solid #ffffff15", paddingBottom: "env(safe-area-inset-bottom)" }}>
           {NAV_ITEMS.map(n => (
             <button key={n.id} onClick={() => setPage(n.id)} style={{
               flex: 1, padding: "9px 4px 11px", border: "none", background: "none",
@@ -1115,7 +1117,7 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
 
   // Desktop nav
   return (
-    <div style={{ background: "#1D3833", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 12px #0005", filter: theme === "dark" ? "invert(1) hue-rotate(180deg)" : "none" }}>
+    <div style={{ background: "#1D3833", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 12px #0005" }}>
       <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", height: 64, padding: "0 20px", gap: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 28 }}>
           <span style={{ fontSize: 22 }}>🏨</span>
@@ -5396,7 +5398,21 @@ function App() {
   );
 
   return (
-    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh", background: "#F1EFE9", backgroundImage: "radial-gradient(#DCD5C6 1.1px, transparent 1.1px)", backgroundSize: "18px 18px", color: "#1D3833", paddingBottom: "env(safe-area-inset-bottom)", filter: theme === "dark" ? "invert(1) hue-rotate(180deg)" : "none", transition: "filter 0.2s ease" }}>
+    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh", background: "#F1EFE9", backgroundImage: "radial-gradient(#DCD5C6 1.1px, transparent 1.1px)", backgroundSize: "18px 18px", color: "#1D3833", paddingBottom: "env(safe-area-inset-bottom)" }}>
+      {/* Dark mode: a transparent, click-through layer pinned to the screen that
+          inverts+hue-rotates whatever is rendered behind it via backdrop-filter.
+          This achieves the same visual flip as filtering the whole app, but
+          — unlike putting the filter on an ancestor — it never turns any
+          position:fixed element (bottom tab bar, modals, the saving toast)
+          into one that's positioned relative to a container instead of the
+          real screen, so nothing drifts or needs scrolling to reach. */}
+      {theme === "dark" && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 99999, pointerEvents: "none",
+          backdropFilter: "invert(1) hue-rotate(180deg)",
+          WebkitBackdropFilter: "invert(1) hue-rotate(180deg)",
+        }} />
+      )}
       {saving && (
         <div style={{ position: "fixed", bottom: 80, right: 16, background: "#1D3833", color: "#fff", padding: "10px 18px", borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 999, boxShadow: "0 4px 16px #0004" }}>
           💾 Saving…
