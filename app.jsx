@@ -1006,8 +1006,59 @@ function ContactButtons({ phone, size = "normal" }) {
   );
 }
 
+// ── THEME TOGGLE ─────────────────────────────────────────────
+// A small pill switch (sun/moon) that flips the app between light and dark.
+// Dark mode is implemented as a CSS filter (invert + hue-rotate) on the
+// whole app body rather than a second hand-written palette — this is a
+// single-file app with 1000+ hardcoded hex colors reused for both
+// backgrounds and text, so a per-color light/dark mapping would be both
+// huge and fragile. The filter trick flips every color consistently in
+// one place. The nav bar is deliberately re-inverted back to normal so it
+// keeps its brand color instead of turning pale in dark mode.
+function ThemeToggle({ theme, onToggle, compact = false }) {
+  const isDark = theme === "dark";
+  return (
+    <button
+      onClick={onToggle}
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      style={{
+        position: "relative",
+        width: compact ? 40 : 46,
+        height: compact ? 22 : 25,
+        borderRadius: 99,
+        border: "none",
+        background: "#ffffff22",
+        cursor: "pointer",
+        padding: 2,
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+      }}
+    >
+      <span style={{
+        position: "absolute",
+        top: 2, bottom: 2,
+        left: isDark ? "calc(100% - " + (compact ? 20 : 23) + "px)" : 2,
+        width: compact ? 18 : 21,
+        height: compact ? 18 : 21,
+        borderRadius: "50%",
+        background: "#fff",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: compact ? 10 : 12,
+        transition: "left 0.18s ease",
+        boxShadow: "0 1px 3px #0004",
+      }}>
+        {isDark ? "🌙" : "☀️"}
+      </span>
+    </button>
+  );
+}
+
 // ── NAV ───────────────────────────────────────────────────────
-function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isManager }) {
+function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isManager, theme, toggleTheme }) {
   const isMobile = useIsMobile();
   const role = userRole?.role;
 
@@ -1026,7 +1077,7 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
     return (
       <>
         {/* Top mini header */}
-        <div style={{ background: "#1D3833", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 8px #0005", padding: "0 16px", height: 54, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ background: "#1D3833", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 8px #0005", padding: "0 16px", height: 54, display: "flex", alignItems: "center", justifyContent: "space-between", filter: theme === "dark" ? "invert(1) hue-rotate(180deg)" : "none" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 20 }}>🏨</span>
             <span style={{ fontWeight: 700, fontSize: 17, fontFamily: FONT_DISPLAY }}>Turiya Hostel</span>
@@ -1036,11 +1087,12 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
               <span>🛏 <b style={{ color: "#DCD5C6" }}>{allStats.totalBeds}</b></span>
               <span>👤 <b style={{ color: "#B8622E" }}>{allStats.totalOcc}</b></span>
             </div>
+            <ThemeToggle theme={theme} onToggle={toggleTheme} compact />
             <button onClick={supabaseAuth.signOut} style={{ background: "#ffffff18", border: "none", borderRadius: 8, padding: "6px 12px", color: "#DCD5C6", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Sign out</button>
           </div>
         </div>
         {/* Bottom tab bar */}
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#1D3833", zIndex: 50, display: "flex", borderTop: "1px solid #ffffff15", paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#1D3833", zIndex: 50, display: "flex", borderTop: "1px solid #ffffff15", paddingBottom: "env(safe-area-inset-bottom)", filter: theme === "dark" ? "invert(1) hue-rotate(180deg)" : "none" }}>
           {NAV_ITEMS.map(n => (
             <button key={n.id} onClick={() => setPage(n.id)} style={{
               flex: 1, padding: "9px 4px 11px", border: "none", background: "none",
@@ -1063,7 +1115,7 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
 
   // Desktop nav
   return (
-    <div style={{ background: "#1D3833", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 12px #0005" }}>
+    <div style={{ background: "#1D3833", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 12px #0005", filter: theme === "dark" ? "invert(1) hue-rotate(180deg)" : "none" }}>
       <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", height: 64, padding: "0 20px", gap: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 28 }}>
           <span style={{ fontSize: 22 }}>🏨</span>
@@ -1095,6 +1147,7 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
           {user && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 8, paddingLeft: 14, borderLeft: "1px solid #ffffff22" }}>
               <span style={{ fontSize: 11.5, background: role === "admin" ? "#2B4B43" : role === "manager" ? "#2F6B44" : "#A9822F", color: "#fff", padding: "3px 10px", borderRadius: 99, fontWeight: 700, textTransform: "capitalize" }}>{role}</span>
+              <ThemeToggle theme={theme} onToggle={toggleTheme} />
               <button onClick={supabaseAuth.signOut} style={{ background: "#ffffff18", border: "none", borderRadius: 8, padding: "6px 14px", color: "#DCD5C6", fontSize: 13, cursor: "pointer", fontWeight: 700 }}>Sign out</button>
             </div>
           )}
@@ -5214,6 +5267,15 @@ function App() {
   const [userRole, setUserRole] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
+  // Dark mode preference, persisted across sessions.
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem("turiya_theme") || "light"; } catch (e) { return "light"; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("turiya_theme", theme); } catch (e) {}
+  }, [theme]);
+  const toggleTheme = useCallback(() => setTheme(t => (t === "dark" ? "light" : "dark")), []);
+
   const [clockTick, setClockTick] = useState(0);
   // `today` is only recomputed when App re-renders — and without this,
   // nothing forces that to happen on its own. The session-refresh timer
@@ -5334,13 +5396,13 @@ function App() {
   );
 
   return (
-    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh", background: "#F1EFE9", backgroundImage: "radial-gradient(#DCD5C6 1.1px, transparent 1.1px)", backgroundSize: "18px 18px", color: "#1D3833", paddingBottom: "env(safe-area-inset-bottom)" }}>
+    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh", background: "#F1EFE9", backgroundImage: "radial-gradient(#DCD5C6 1.1px, transparent 1.1px)", backgroundSize: "18px 18px", color: "#1D3833", paddingBottom: "env(safe-area-inset-bottom)", filter: theme === "dark" ? "invert(1) hue-rotate(180deg)" : "none", transition: "filter 0.2s ease" }}>
       {saving && (
         <div style={{ position: "fixed", bottom: 80, right: 16, background: "#1D3833", color: "#fff", padding: "10px 18px", borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 999, boxShadow: "0 4px 16px #0004" }}>
           💾 Saving…
         </div>
       )}
-      <Nav page={page} setPage={setPage} allStats={allStats} rentAlerts={rentAlerts} user={user} userRole={userRole} isAdmin={isAdmin} isManager={isManager} />
+      <Nav page={page} setPage={setPage} allStats={allStats} rentAlerts={rentAlerts} user={user} userRole={userRole} isAdmin={isAdmin} isManager={isManager} theme={theme} toggleTheme={toggleTheme} />
       {page === "home" && <HomePage rooms={rooms} setPage={setPage} setActiveFloor={setActiveFloor} today={today} isManager={isManager} setRoomsInitialStatusFilter={setRoomsInitialStatusFilter} />}
       {page === "rooms" && <RoomsPage rooms={rooms} setRooms={setRooms} activeFloor={activeFloor} setActiveFloor={setActiveFloor} onSaveRoom={handleSaveRoom} isManager={isManager} initialStatusFilter={roomsInitialStatusFilter} />}
       {page === "search" && <TenantSearchPage rooms={rooms} setPage={setPage} setActiveFloor={setActiveFloor} isManager={isManager} isAdmin={isAdmin} />}
