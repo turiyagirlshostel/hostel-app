@@ -2157,6 +2157,61 @@ function RentPage({ rooms, setRooms, today }) {
     } catch (e) { console.warn("Payment log failed (table may not exist yet):", e); }
     return { nowIso, nextPaidOnIso, receiptNo, finalMode };
   }
+  // Inverse of the forward step in addCycle(): given a due-day-aligned
+  // boundary, returns the boundary exactly one cycle BEFORE it. Used only
+  // by repairTenantLegacyRows() below, to walk a chain of old payments
+  // backward from a tenant's current rentPaidOn.
+  function prevCycleBoundary(t, boundaryIso) {
+    const is15 = (t.billingType || "monthly") === "15day";
+    const b = new Date(boundaryIso);
+    if (is15) return new Date(b.getTime() - 15 * MS_PER_DAY).toISOString();
+    const ad = new Date(t.admissionDate + "T00:00:00");
+    const dueDay = ad.getDate();
+    let y = b.getFullYear(), m = b.getMonth() - 1;
+    if (m < 0) { m = 11; y -= 1; }
+    const daysInM = new Date(y, m + 1, 0).getDate();
+    return new Date(y, m, Math.min(dueDay, daysInM)).toISOString();
+  }
+  // Auto-tags legacy payment rows that predate the event_type /
+  // prev_rent_paid_on columns, so old tenants never need a manual Supabase
+  // edit. Assumes paymentsLog is the complete, chronological record of every
+  // Mark Paid / Add Cycle click for this tenant (true for this app, since
+  // logPayment() is called on every one of those actions) — so the oldest
+  // untagged row is always "mark_paid" and every row after it is "add_cycle",
+  // and prev_rent_paid_on for each can be derived by walking prevCycleBoundary
+  // backward from the tenant's current, known-correct rentPaidOn. Returns
+  // true if the tenant's rows are now fully tagged (nothing to do counts as
+  // success), false if repair wasn't possible (e.g. missing admission date).
+  async function repairTenantLegacyRows(t) {
+    if (!t.dbId || !t.admissionDate || !t.rentPaidOn) return false;
+    const rows = (paymentsLog || [])
+      .filter(p => p.tenant_id === t.dbId && !p.event_type)
+      .slice()
+      .sort((a, b) => (a.id ?? 0) - (b.id ?? 0) || new Date(a.paid_at) - new Date(b.paid_at));
+    if (rows.length === 0) return true;
+    const n = rows.length;
+    const boundaries = new Array(n);
+    boundaries[n - 1] = t.rentPaidOn;
+    for (let i = n - 2; i >= 0; i--) boundaries[i] = prevCycleBoundary(t, boundaries[i + 1]);
+    try {
+      for (let i = 0; i < n; i++) {
+        const row = rows[i];
+        const event_type = i === 0 ? "mark_paid" : "add_cycle";
+        const prev_rent_paid_on = i === 0 ? null : boundaries[i - 1];
+        const key = row.id != null ? `id=eq.${row.id}` : `receipt_no=eq.${row.receipt_no}`;
+        await sbFetch(`/payments?${key}`, "PATCH", { event_type, prev_rent_paid_on }, { "Prefer": "return=minimal" });
+        // Mutate in place so a tenantCycleChain() call made right after this
+        // (before React re-renders) already sees the repaired tags.
+        row.event_type = event_type;
+        row.prev_rent_paid_on = prev_rent_paid_on;
+      }
+      setPaymentsLog(prev => (prev ? prev.slice() : prev));
+      return true;
+    } catch (e) {
+      console.warn("Legacy payment repair failed:", e);
+      return false;
+    }
+  }
   async function undoPaid(t) {
     // If this tenant has "+ Add Cycle" advances stacked on top of their
     // original payment, undoing should only ever remove the MOST RECENT
@@ -2178,12 +2233,22 @@ function RentPage({ rooms, setRooms, today }) {
     // wiping cycles the person didn't intend to undo.
     const tenantRows = (paymentsLog || []).filter(p => p.tenant_id === t.dbId);
     if (tenantRows.length > 1) {
+      // Try to auto-tag this tenant's legacy rows first (no manual Supabase
+      // editing needed), then retry the safe per-cycle undo above.
+      const repaired = await repairTenantLegacyRows(t);
+      if (repaired) {
+        const retryCycles = tenantCycleChain(t);
+        if (retryCycles.length > 0) {
+          await undoCycleEntry(t, retryCycles[retryCycles.length - 1].entry);
+          return;
+        }
+      }
       alert(
-        "Can't safely undo: this tenant has more than one payment on record, but this app can't tell them apart yet because the database is missing a one-time update.\n\n" +
-        "Run this once in Supabase's SQL editor, then reload:\n\n" +
-        "alter table payments add column if not exists event_type text;\n" +
-        "alter table payments add column if not exists prev_rent_paid_on timestamptz;\n\n" +
-        "Undo has been stopped so nothing was changed."
+        (repaired
+          ? "Can't safely undo: this tenant's payment history could be auto-repaired but still doesn't resolve to a clear cycle to undo.\n\n"
+          : "Can't safely undo: this tenant has more than one payment on record, and automatic repair failed — this usually means their admission date or current paid-through date is missing.\n\n" +
+            "Set the tenant's admission date on the Rooms page (and make sure they show as Paid), then try Undo again.\n\n") +
+        "Nothing was changed."
       );
       return;
     }
