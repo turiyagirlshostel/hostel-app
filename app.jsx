@@ -2180,15 +2180,18 @@ function RentPage({ rooms, setRooms, today }) {
   // untagged row is always "mark_paid" and every row after it is "add_cycle",
   // and prev_rent_paid_on for each can be derived by walking prevCycleBoundary
   // backward from the tenant's current, known-correct rentPaidOn. Returns
-  // true if the tenant's rows are now fully tagged (nothing to do counts as
-  // success), false if repair wasn't possible (e.g. missing admission date).
+  // Returns { ok, reason } instead of a bare boolean — "nothing to do"
+  // counts as ok, and every failure path carries a specific, user-facing
+  // reason so a failed repair is never silent again.
   async function repairTenantLegacyRows(t) {
-    if (!t.dbId || !t.admissionDate || !t.rentPaidOn) return false;
+    if (!t.dbId) return { ok: false, reason: "This tenant has no linked database record." };
+    if (!t.admissionDate) return { ok: false, reason: "This tenant is missing an admission date." };
+    if (!t.rentPaidOn) return { ok: false, reason: "This tenant has no current paid-through date to anchor from." };
     const rows = (paymentsLog || [])
       .filter(p => p.tenant_id === t.dbId && !p.event_type)
       .slice()
       .sort((a, b) => (a.id ?? 0) - (b.id ?? 0) || new Date(a.paid_at) - new Date(b.paid_at));
-    if (rows.length === 0) return true;
+    if (rows.length === 0) return { ok: true, reason: null };
     const n = rows.length;
     const boundaries = new Array(n);
     boundaries[n - 1] = t.rentPaidOn;
@@ -2206,10 +2209,21 @@ function RentPage({ rooms, setRooms, today }) {
         row.prev_rent_paid_on = prev_rent_paid_on;
       }
       setPaymentsLog(prev => (prev ? prev.slice() : prev));
-      return true;
+      return { ok: true, reason: null };
     } catch (e) {
       console.warn("Legacy payment repair failed:", e);
-      return false;
+      // Most common real-world cause: the payments table's RLS policies
+      // were only ever set up for INSERT/DELETE (all this app used to need),
+      // so this new UPDATE gets rejected. Surface that plainly rather than
+      // failing silently.
+      const msg = String(e && e.message || e);
+      const looksLikeRLS = /401|403|permission|policy|row-level/i.test(msg);
+      return {
+        ok: false,
+        reason: looksLikeRLS
+          ? "Database rejected the update (likely a missing UPDATE permission/policy on the payments table)."
+          : `Database update failed: ${msg}`,
+      };
     }
   }
   async function undoPaid(t) {
@@ -2235,8 +2249,8 @@ function RentPage({ rooms, setRooms, today }) {
     if (tenantRows.length > 1) {
       // Try to auto-tag this tenant's legacy rows first (no manual Supabase
       // editing needed), then retry the safe per-cycle undo above.
-      const repaired = await repairTenantLegacyRows(t);
-      if (repaired) {
+      const { ok, reason } = await repairTenantLegacyRows(t);
+      if (ok) {
         const retryCycles = tenantCycleChain(t);
         if (retryCycles.length > 0) {
           await undoCycleEntry(t, retryCycles[retryCycles.length - 1].entry);
@@ -2244,11 +2258,14 @@ function RentPage({ rooms, setRooms, today }) {
         }
       }
       alert(
-        (repaired
-          ? "Can't safely undo: this tenant's payment history could be auto-repaired but still doesn't resolve to a clear cycle to undo.\n\n"
-          : "Can't safely undo: this tenant has more than one payment on record, and automatic repair failed — this usually means their admission date or current paid-through date is missing.\n\n" +
-            "Set the tenant's admission date on the Rooms page (and make sure they show as Paid), then try Undo again.\n\n") +
-        "Nothing was changed."
+        "Can't safely undo: this tenant has more than one payment on record, and automatic repair " +
+        (ok
+          ? "ran but still couldn't resolve a clear cycle to undo."
+          : `failed.\n\nReason: ${reason}` +
+            (/UPDATE|policy|permission/i.test(reason || "")
+              ? "\n\nIf you have access to Supabase → Authentication → Policies for the payments table, add an UPDATE policy (e.g. allow authenticated users to update their own hostel's rows), then try Undo again."
+              : "")) +
+        "\n\nNothing was changed."
       );
       return;
     }
