@@ -2281,6 +2281,25 @@ function RentPage({ rooms, setRooms, today }) {
     const billingType = t.billingType || "monthly";
     const is15 = billingType === "15day";
     const isDaily = billingType === "daily";
+    // Guard: a monthly/15-day receipt with no printed period is a silent
+    // failure the person won't notice until a tenant asks "which month is
+    // this?" — cyclePeriodBounds only comes back null when admissionDate or
+    // the paid-on reference is missing (see its own comment), so whenever
+    // that happens here, stop and say exactly which one so it can be fixed
+    // BEFORE a blank receipt goes out, instead of silently printing one.
+    if (!isDaily && !overrides.force) {
+      const missing = [];
+      if (!t.admissionDate) missing.push("admission date");
+      if (!cycleRefIso) missing.push("paid-on date");
+      if (missing.length > 0) {
+        const proceed = window.confirm(
+          `This receipt won't show which month it's for — ${t.name} is missing a ${missing.join(" and ")}.\n\n` +
+          `Fix it from the Rooms/Tenants page first, then print again.\n\n` +
+          `Press OK to print anyway without the month (not recommended), or Cancel to go fix it.`
+        );
+        if (!proceed) return;
+      }
+    }
     const periodBounds = !isDaily && cycleRefIso ? cyclePeriodBounds(t, cycleRefIso) : null;
     const periodLabel = !isDaily && cycleRefIso ? cyclePeriodLabel(t, cycleRefIso) : null;
     const periodBadge = periodBounds
