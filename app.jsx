@@ -3245,11 +3245,11 @@ function RentPage({ rooms, setRooms, today }) {
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 340 }}>
             <div style={{ fontSize: 40, textAlign: "center", marginBottom: 8 }}>⚠️</div>
             <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>
-              {migrationMissing ? "Can't safely undo yet" : hasCycles ? "Undo the most recent cycle?" : "Undo this payment?"}
+              {migrationMissing ? "Repair and undo?" : hasCycles ? "Undo the most recent cycle?" : "Undo this payment?"}
             </div>
             <div style={{ fontSize: 13, color: "#6B6459", textAlign: "center", marginBottom: 18 }}>
               {migrationMissing ? (
-                <>This tenant has <b>{tenantRows.length} payments</b> on record, but the database is missing a one-time update needed to tell them apart safely. Undoing right now would reset ALL of them at once. Run the SQL migration (see the setup note), reload, then try again.</>
+                <>This tenant has <b>{tenantRows.length} payments</b> on record that aren't tagged yet. Clicking below will first auto-repair those old rows, then undo only the most recent cycle — the rest stay as they are. If the repair fails, nothing will be changed and you'll see exactly why.</>
               ) : hasCycles ? (
                 <>This removes only the <b>last</b> cycle added for <b>{undoPaidConfirm.name}</b>{restoreDate ? <> — their paid-through date rolls back to <b>{fmtDateIST(new Date(restoreDate), { day: "numeric", month: "short", year: "numeric" })}</b></> : ""}. The {cycles.length - 1} cycle{cycles.length - 1 !== 1 ? "s" : ""} before it stay exactly as they are.</>
               ) : (
@@ -3258,11 +3258,9 @@ function RentPage({ rooms, setRooms, today }) {
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setUndoPaidConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
-              {!migrationMissing && (
-                <button onClick={async () => { const t = undoPaidConfirm; setUndoPaidConfirm(null); await undoPaid(t); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#A83D2A", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
-                  Yes, Undo
-                </button>
-              )}
+              <button onClick={async () => { const t = undoPaidConfirm; setUndoPaidConfirm(null); await undoPaid(t); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#A83D2A", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                {migrationMissing ? "Repair & Undo" : "Yes, Undo"}
+              </button>
             </div>
           </div>
         </div>
