@@ -2532,11 +2532,14 @@ function RentPage({ rooms, setRooms, today }) {
   });
   const sortedKeys = Object.keys(grouped).sort((ka, kb) => grouped[ka][0].rentStatus.daysUntil - grouped[kb][0].rentStatus.daysUntil);
 
-  // TO COLLECT must stay unpaid-only: dueToday is always unpaid by
-  // construction, but dueSoon can now include tenants who've already paid
-  // ahead (see the visibleCyclic comment above) — without this filter,
-  // their rent would get counted as still owed even though it's collected.
-  const totalToCollect = [...dueToday, ...dueSoon].filter(t => !t.isPaid && t.rentAmount).reduce((s, t) => s + Number(t.rentAmount), 0);
+  // TO COLLECT must stay unpaid-only: dueToday and overdue are always
+  // unpaid by construction, but dueSoon can now include tenants who've
+  // already paid ahead (see the visibleCyclic comment above) — without this
+  // filter, their rent would get counted as still owed even though it's
+  // collected. Overdue tenants must be included here too — they're unpaid
+  // rent that's still waiting to be collected, arguably the most urgent
+  // part of this total, not just dueToday/dueSoon.
+  const totalToCollect = [...overdue, ...dueToday, ...dueSoon].filter(t => !t.isPaid && t.rentAmount).reduce((s, t) => s + Number(t.rentAmount), 0);
   const totalCollected = paidList.filter(t => t.rentAmount).reduce((s, t) => s + Number(t.rentAmount), 0);
 
   // Calendar-month total: sums every payment actually made since the 1st of
@@ -2602,7 +2605,7 @@ function RentPage({ rooms, setRooms, today }) {
         <div style={{ background: "#FBEEEA", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #DDA79A" }}>
           <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>TO COLLECT</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#C1543C" }}>₹{totalToCollect.toLocaleString("en-IN")}</div>
-          <div style={{ fontSize: 11, color: "#9C9585" }}>{[...dueToday,...dueSoon].filter(t=>!t.isPaid && t.rentAmount).length} tenants</div>
+          <div style={{ fontSize: 11, color: "#9C9585" }}>{[...overdue,...dueToday,...dueSoon].filter(t=>!t.isPaid && t.rentAmount).length} tenants</div>
         </div>
         <div style={{ background: "#EBF3EC", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #A8CDB0" }}>
           <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>COLLECTED (this cycle)</div>
