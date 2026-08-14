@@ -1976,18 +1976,34 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
   const safeName = (name || "tenant").trim().replace(/[^a-zA-Z0-9]+/g, "_");
   const fileName = `${safeName}_${fileTag ? fileTag + "_" : ""}${fileDate}.pdf`;
 
-  // ── OPEN THE RECEIPT INSTEAD OF A SILENT DOWNLOAD ──
-  // Plain doc.save() just drops the file into Downloads with no visual
-  // confirmation — easy to lose on mobile. Opening it as a blob URL in a new
-  // tab shows the PDF immediately in the browser's built-in viewer, where it
-  // can already be seen/shared/saved from there. Falls back to a normal
-  // download if the popup gets blocked (some in-app/embedded browsers do this).
+  // ── SHARE THE RECEIPT DIRECTLY, WITH FALLBACKS ──
+  // Best case: hand the PDF straight to Android's native share sheet (Web
+  // Share API) so it can go straight into WhatsApp/Gmail/etc. in one tap —
+  // that's what "a PDF I can share" means on mobile, not just viewing it.
+  // If the browser can't share files (older browsers, desktop Brave/Chrome),
+  // fall back to opening it in a new tab so it's at least visible right away.
+  // If that's blocked too, fall back to a plain download as a last resort.
+  const openInTab = () => {
+    try {
+      const blobUrl = doc.output("bloburl");
+      const viewerTab = window.open(blobUrl, "_blank");
+      if (!viewerTab) doc.save(fileName);
+    } catch (e) {
+      doc.save(fileName);
+    }
+  };
+
   try {
-    const blobUrl = doc.output("bloburl");
-    const viewerTab = window.open(blobUrl, "_blank");
-    if (!viewerTab) doc.save(fileName);
+    const pdfBlob = doc.output("blob");
+    const shareFile = new File([pdfBlob], fileName, { type: "application/pdf" });
+    if (navigator.canShare && navigator.canShare({ files: [shareFile] })) {
+      navigator.share({ files: [shareFile], title: docTitle, text: `${docTitle} — ${name}` })
+        .catch(() => openInTab()); // share sheet dismissed/cancelled — don't leave the user with nothing
+    } else {
+      openInTab();
+    }
   } catch (e) {
-    doc.save(fileName);
+    openInTab();
   }
 }
 
