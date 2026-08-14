@@ -1974,7 +1974,21 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
 
   const fileDate = istDateStr(paidDate);
   const safeName = (name || "tenant").trim().replace(/[^a-zA-Z0-9]+/g, "_");
-  doc.save(`${safeName}_${fileTag ? fileTag + "_" : ""}${fileDate}.pdf`);
+  const fileName = `${safeName}_${fileTag ? fileTag + "_" : ""}${fileDate}.pdf`;
+
+  // ── OPEN THE RECEIPT INSTEAD OF A SILENT DOWNLOAD ──
+  // Plain doc.save() just drops the file into Downloads with no visual
+  // confirmation — easy to lose on mobile. Opening it as a blob URL in a new
+  // tab shows the PDF immediately in the browser's built-in viewer, where it
+  // can already be seen/shared/saved from there. Falls back to a normal
+  // download if the popup gets blocked (some in-app/embedded browsers do this).
+  try {
+    const blobUrl = doc.output("bloburl");
+    const viewerTab = window.open(blobUrl, "_blank");
+    if (!viewerTab) doc.save(fileName);
+  } catch (e) {
+    doc.save(fileName);
+  }
 }
 
 
