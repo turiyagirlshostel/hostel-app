@@ -55,6 +55,46 @@ function useIsMobile() {
   return isMobile;
 }
 
+// Tracks real internet connectivity, not just "is wifi/data toggled on."
+// The browser's navigator.onLine only reflects whether the device THINKS
+// it has a network interface up — a phone can show "connected" to a wifi
+// router with no actual internet behind it, which is a very common way
+// for a return/save to silently fail without the person realizing why.
+// So this pings Supabase itself every 20s (and immediately on any
+// online/offline browser event) to confirm the connection actually works,
+// not just that the device believes it does.
+function useOnlineStatus() {
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        if (!cancelled) setOnline(false);
+        return;
+      }
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/`, { method: "HEAD", cache: "no-store" });
+        if (!cancelled) setOnline(res.ok || res.status === 404 || res.status === 401); // any real response = internet works
+      } catch (e) {
+        if (!cancelled) setOnline(false);
+      }
+    }
+    check();
+    const interval = setInterval(check, 20000);
+    const onOnline = () => check();
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+  return online;
+}
+
 // ── SUPABASE CONFIG ───────────────────────────────────────────
 const SUPABASE_URL = "https://gqdywhlhpqogtlzhcqih.supabase.co";
 // This account can never be demoted or removed through the app — enforced
@@ -3704,9 +3744,16 @@ function DepositsPage({ rooms, setRooms, today }) {
   const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
   // If actively searching, show every match regardless of age — the 30-day
   // window is just a default declutter, not a real limit on what's findable.
-  const returned = term.length > 0
-    ? allReturned.filter(d => matchesTerm(d.tenant_name, d.phone)).sort((a, b) => new Date(b.returned_at) - new Date(a.returned_at))
-    : allReturned.filter(d => new Date(d.returned_at) >= thirtyDaysAgo);
+  //
+  // BUGFIX: the no-search branch below used to skip sorting entirely, so
+  // returns showed up in whatever order they happened to load in (their
+  // ORIGINAL collection order, not return order) — that's what looked like
+  // clutter/chaos. Both branches now sort the same way: most recently
+  // returned at the top, oldest return at the bottom, every time.
+  const returned = (term.length > 0
+    ? allReturned.filter(d => matchesTerm(d.tenant_name, d.phone))
+    : allReturned.filter(d => new Date(d.returned_at) >= thirtyDaysAgo)
+  ).sort((a, b) => new Date(b.returned_at) - new Date(a.returned_at));
 
   const totalHeld = held.reduce((s, d) => s + (Number(d.amount) || 0), 0);
   const totalReturned = allReturned.reduce((s, d) => s + (Number(d.return_amount) || 0), 0);
@@ -5512,6 +5559,7 @@ function UsersPage({ currentUser }) {
 
 // ── ROOT ─────────────────────────────────────────────────────
 function App() {
+  const isOnline = useOnlineStatus();
   const [rooms, setRooms] = useState(initRooms);
   const [page, setPage] = useState("home");
   const [activeFloor, setActiveFloor] = useState(1);
@@ -5652,7 +5700,24 @@ function App() {
   );
 
   return (
-    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh", background: "#F1EFE9", backgroundImage: "radial-gradient(#DCD5C6 1.1px, transparent 1.1px)", backgroundSize: "18px 18px", color: "#1D3833", paddingBottom: "env(safe-area-inset-bottom)" }}>
+    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh", background: "#F1EFE9", backgroundImage: "radial-gradient(#DCD5C6 1.1px, transparent 1.1px)", backgroundSize: "18px 18px", color: "#1D3833", paddingBottom: "env(safe-area-inset-bottom)", paddingTop: isOnline ? 0 : 38 }}>
+      {/* No-internet banner — like the browser's own offline strip. Sits
+          fixed at the very top so it's visible no matter which page or
+          modal is open, since that's exactly when a save/return is most
+          likely to be silently failing. Pushes the rest of the app down
+          (via paddingTop above) instead of overlapping it. */}
+      {!isOnline && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 100000,
+          background: "#A83D2A", color: "#fff", textAlign: "center",
+          padding: "9px 12px", fontSize: 13, fontWeight: 700,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          boxShadow: "0 2px 10px #0003",
+        }}>
+          <span>📡</span>
+          <span>No internet connection — changes won't save until you're back online</span>
+        </div>
+      )}
       {/* Dark mode: a transparent, click-through layer pinned to the screen that
           inverts+hue-rotates whatever is rendered behind it via backdrop-filter.
           This achieves the same visual flip as filtering the whole app, but
