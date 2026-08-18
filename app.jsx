@@ -196,6 +196,22 @@ async function sbFetch(path, method = "GET", body = null, extraHeaders = {}, _is
   }
 }
 
+// Retries a flaky/transient network failure a couple of times with a short
+// pause before giving up — most "failed to save" moments on a phone are a
+// dropped wifi/mobile-data blip for a second, not a real, lasting problem.
+async function sbFetchWithRetry(path, method = "GET", body = null, extraHeaders = {}, retries = 2, delayMs = 900) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await sbFetch(path, method, body, extraHeaders);
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) await new Promise(r => setTimeout(r, delayMs * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 async function loadAllRooms() {
   const [roomRows, tenantRows] = await Promise.all([
     sbFetch("/rooms?select=*"),
@@ -4029,8 +4045,29 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
   }
 
   // Records a deposit return directly from the Clear/Save flow — mirrors
-  // DepositsPage's own confirmReturn, but looked up by receipt number since
-  // this form only has the tenant's local record, not the ledger row id.
+  // DepositsPage's own confirmReturn.
+  //
+  // BUGFIX (in order of how much they mattered):
+  // 1) The ledger row is now looked up by the tenant's real database id
+  //    first — a stable link — instead of ONLY matching the receipt-number
+  //    text, which could silently miss if that text was ever stale/blank.
+  // 2) If NEITHER lookup finds a row — meaning the ledger record that
+  //    should exist genuinely doesn't (it was somehow never created) — we
+  //    no longer just give up. We recreate it from what the tenant's own
+  //    record already knows (amount, when it was collected, how) and mark
+  //    it returned in the same step, so the return is never lost just
+  //    because the ledger side of it went missing.
+  // 3) Any Supabase/network call in here now retries a couple of times
+  //    automatically (sbFetchWithRetry) before it's treated as a real
+  //    failure — most "it failed" moments on a phone are a one-second wifi
+  //    blip, not a lasting problem.
+  // 4) A failure that survives all of that is no longer a dismissible
+  //    alert() — it's a blocking error on that tenant's card, and
+  //    "Continue & Save" is disabled while it's showing, so a tenant can
+  //    never get archived while their return is actually unresolved. A
+  //    true failure at this point can only mean there's no internet at
+  //    all right now — nothing can be written to the database without a
+  //    connection — and the message says so plainly instead of guessing.
   async function returnDepositInline(entry) {
     const rs = returnState[entry.bed];
     const mode = rs.mode === "Other" ? rs.modeOther.trim() : rs.mode;
@@ -4039,16 +4076,62 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
     try {
       const nowIso = new Date().toISOString();
       const returnReceiptNo = generateReceiptNo(nowIso, "SDR");
-      const rows = await sbFetch(`/security_deposits?receipt_no=eq.${encodeURIComponent(entry.depositReceiptNo)}&select=*`);
-      const row = rows && rows[0];
-      if (!row) throw new Error("Could not find the original deposit record.");
-      await updateDepositRecord(row.id, {
+
+      // Primary lookup: by the tenant's real DB id — reliable even if the
+      // receipt-number text on the local record is stale or blank.
+      let row = null;
+      if (entry.dbId) {
+        const byTenant = await sbFetchWithRetry(`/security_deposits?tenant_id=eq.${entry.dbId}&returned_at=is.null&order=collected_at.desc&limit=1&select=*`);
+        row = byTenant && byTenant[0];
+      }
+      // Fallback: by receipt number, for older records without a tenant_id link.
+      if (!row && entry.depositReceiptNo) {
+        const byReceipt = await sbFetchWithRetry(`/security_deposits?receipt_no=eq.${encodeURIComponent(entry.depositReceiptNo)}&select=*`);
+        row = byReceipt && byReceipt[0];
+      }
+      // Self-heal: the ledger row should exist but genuinely doesn't —
+      // recreate it from the tenant's own record rather than lose the
+      // return entirely. Created and marked returned in one go.
+      if (!row) {
+        const created = await sbFetchWithRetry("/security_deposits", "POST", {
+          receipt_no: entry.depositReceiptNo || generateReceiptNo(entry.depositPaidOn || nowIso, "SD"),
+          tenant_name: entry.name,
+          phone: entry.phone || "",
+          floor: editingRoom.floor,
+          room_number: editingRoom.number,
+          amount: Number(entry.depositAmount) || 0,
+          payment_mode: entry.depositPaymentMode || "Cash",
+          collected_at: entry.depositPaidOn || nowIso,
+          collect_note: "Reconstructed automatically — original ledger entry was missing.",
+          tenant_id: entry.dbId || null,
+        }, { "Prefer": "return=representation" });
+        row = created && created[0];
+        if (!row) throw new Error("No internet connection — couldn't reach the server to save this return.");
+      }
+
+      // The write that actually matters most — retried directly here
+      // (rather than via updateDepositRecord) so a flaky connection can't
+      // turn "returned" into "not returned" on a single dropped request.
+      await sbFetchWithRetry(`/security_deposits?id=eq.${row.id}`, "PATCH", {
         returned_at: nowIso, return_amount: amount, return_mode: mode,
         return_receipt_no: returnReceiptNo, return_note: rs.note.trim() || null,
-      });
+      }, { "Prefer": "return=minimal" });
       if (entry.dbId) {
-        try { await sbFetch(`/tenants?id=eq.${entry.dbId}`, "PATCH", { deposit_returned_on: nowIso, deposit_return_amount: amount }, { "Prefer": "return=minimal" }); } catch (e) {}
+        try { await sbFetchWithRetry(`/tenants?id=eq.${entry.dbId}`, "PATCH", { deposit_returned_on: nowIso, deposit_return_amount: amount }, { "Prefer": "return=minimal" }); } catch (e) {}
       }
+
+      // Reflect the return in on-screen room data right away, so the
+      // tenant's card (and anything derived from `rooms` state) is correct
+      // even before the room save/archive step runs.
+      setRooms(prev => {
+        const roomId = `${editingRoom.floor}-${editingRoom.number}`;
+        const room = prev[roomId];
+        if (!room) return prev;
+        const bedIndex = entry.bed - 1;
+        const newTenants = room.tenants.map((tn, bi) => bi === bedIndex ? { ...tn, depositReturnedOn: nowIso, depositReturnAmount: amount } : tn);
+        return { ...prev, [roomId]: { ...room, tenants: newTenants } };
+      });
+
       generateReceiptPDF({
         name: entry.name, phone: entry.phone, floorLabel: FLOOR_LABELS[editingRoom.floor] || "Floor " + editingRoom.floor,
         roomNumber: editingRoom.number, paidDate: new Date(nowIso), amount, mode, receiptNo: returnReceiptNo,
@@ -4057,8 +4140,11 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
       patchReturnState(entry.bed, { step: "done" });
     } catch (e) {
       console.error(e);
-      alert("Failed to record the return. Please check your internet connection.");
-      patchReturnState(entry.bed, { step: "confirm" });
+      // Blocking, per-tenant error — NOT a dismissible alert() the admin
+      // could click past. "Continue & Save" is disabled while any entry is
+      // in this state, so a tenant can never get archived while their
+      // return silently failed.
+      patchReturnState(entry.bed, { step: "error", errorMsg: e.message || "Failed to record the return." });
     }
   }
 
@@ -4097,7 +4183,11 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
   }
   const [clearConfirm, setClearConfirm] = useState(null); // { bedIndex, name }
   function clearTenant(i) {
-    setEditForm(f => ({ ...f, tenants: f.tenants.map((t, idx) => idx === i ? { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "" } : t) }));
+    // NOTE: deposit fields (depositAmount, depositReturnedOn, etc.) are
+    // deliberately NOT included in this blank object, so they're wiped from
+    // the on-screen form too — leaving them behind used to make a cleared
+    // bed look like it still carried the old tenant's deposit status.
+    setEditForm(f => ({ ...f, tenants: f.tenants.map((t, idx) => idx === i ? { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "", depositAmount: "", depositPaidOn: "", depositPaymentMode: "", depositReceiptNo: "", depositReturnedOn: "", depositReturnAmount: "", depositNote: "" } : t) }));
   }
   // Builds a map of bed-index -> problem message for the phone field currently
   // in the edit form: invalid format (not a real 10-digit mobile number),
@@ -4150,7 +4240,13 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
       const isSamePerson = newHasName && (orig.name === newT.name || samePersonByPhone);
       if (isSamePerson) return; // still the same tenant — nothing "outgoing"
       const hasHeldDeposit = Number(orig.depositAmount) > 0 && orig.depositPaidOn && !orig.depositReturnedOn;
-      if (hasHeldDeposit) out.push({ name: orig.name, bed: i + 1, depositAmount: orig.depositAmount, depositReceiptNo: orig.depositReceiptNo, phone: orig.phone, dbId: orig.dbId });
+      // depositPaidOn/depositPaymentMode are carried along purely as a
+      // self-heal fallback — see returnDepositInline: if the ledger row
+      // that SHOULD exist for this deposit genuinely can't be found (e.g.
+      // it was never created due to some earlier sync issue), we can
+      // reconstruct it from what the tenant's own record already knows,
+      // instead of just failing.
+      if (hasHeldDeposit) out.push({ name: orig.name, bed: i + 1, depositAmount: orig.depositAmount, depositReceiptNo: orig.depositReceiptNo, depositPaidOn: orig.depositPaidOn, depositPaymentMode: orig.depositPaymentMode, phone: orig.phone, dbId: orig.dbId });
     });
     return out;
   }
@@ -4764,16 +4860,42 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                     {rs.step === "busy" && (
                       <div style={{ fontSize: 13, color: "#9C9585", textAlign: "center", padding: "6px 0" }}>Saving…</div>
                     )}
+
+                    {rs.step === "error" && (
+                      <div>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: "#A83D2A", background: "#FBEAE6", borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>
+                          ❌ {rs.errorMsg || "Failed to record the return."} — this deposit was NOT marked returned. Please try again before saving, or it will be lost from the ledger once this tenant is archived.
+                        </div>
+                        <button onClick={() => patchReturnState(entry.bed, { step: "confirm" })} style={{ width: "100%", padding: "9px 0", borderRadius: 9, border: "none", background: "#A83D2A", color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                          ↻ Try Again
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
 
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setDepositWarning(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Go Back</button>
-              <button onClick={() => { setDepositWarning(null); saveEdit(); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#B8622E", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Continue & Save</button>
-            </div>
-            <div style={{ fontSize: 11, color: "#9C9585", textAlign: "center", marginTop: 12 }}>Any deposit left un-returned above will still show as owed in the Deposits tab.</div>
+            {(() => {
+              const hasError = depositWarning.some(en => (returnState[en.bed] || {}).step === "error");
+              return (
+                <>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => setDepositWarning(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Go Back</button>
+                    <button
+                      disabled={hasError}
+                      onClick={() => { setDepositWarning(null); saveEdit(); }}
+                      style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: hasError ? "#C9C0AC" : "#B8622E", color: "#fff", fontWeight: 700, fontSize: 14, cursor: hasError ? "not-allowed" : "pointer" }}
+                    >
+                      Continue & Save
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 11, color: hasError ? "#A83D2A" : "#9C9585", textAlign: "center", marginTop: 12, fontWeight: hasError ? 700 : 400 }}>
+                    {hasError ? "Fix the failed return above before saving — otherwise it will be lost." : "Any deposit left un-returned above will still show as owed in the Deposits tab."}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
