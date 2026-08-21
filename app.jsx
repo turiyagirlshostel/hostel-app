@@ -2247,32 +2247,26 @@ function RentPage({ rooms, setRooms, today }) {
   // boundary, returns the boundary exactly one cycle BEFORE it. Used only
   // by repairTenantLegacyRows() below, to walk a chain of old payments
   // backward from a tenant's current rentPaidOn.
-  function prevCycleBoundary(t, boundaryIso) {
-    const is15 = (t.billingType || "monthly") === "15day";
-    const b = new Date(boundaryIso);
-    if (is15) return new Date(b.getTime() - 15 * MS_PER_DAY).toISOString();
-    const ad = new Date(t.admissionDate + "T00:00:00");
-    const dueDay = ad.getDate();
-    let y = b.getFullYear(), m = b.getMonth() - 1;
-    if (m < 0) { m = 11; y -= 1; }
-    const daysInM = new Date(y, m + 1, 0).getDate();
-    return new Date(y, m, Math.min(dueDay, daysInM)).toISOString();
-  }
   // Auto-tags legacy payment rows that predate the event_type /
   // prev_rent_paid_on columns, so old tenants never need a manual Supabase
   // edit. Assumes paymentsLog is the complete, chronological record of every
   // Mark Paid / Add Cycle click for this tenant (true for this app, since
   // logPayment() is called on every one of those actions) — so the oldest
-  // untagged row is always "mark_paid" and every row after it is "add_cycle",
-  // and prev_rent_paid_on for each can be derived by walking prevCycleBoundary
-  // backward from the tenant's current, known-correct rentPaidOn. Returns
+  // row is always "mark_paid" and every row after it is "add_cycle", and
+  // prev_rent_paid_on for each row is simply the REAL paid_at of the row
+  // immediately before it in that chronological order. (We used to derive
+  // prev_rent_paid_on by walking prevCycleBoundary — idealized calendar-cycle
+  // math off the tenant's admission day — backward from rentPaidOn. That
+  // silently produced WRONG dates whenever a real payment didn't land
+  // exactly on its "ideal" cycle boundary, e.g. an early/late payment,
+  // overwriting a correct historical date with a fabricated one. Using each
+  // row's own real paid_at instead means repair can never invent a date —
+  // it only ever reflects what actually happened.)
   // Returns { ok, reason } instead of a bare boolean — "nothing to do"
   // counts as ok, and every failure path carries a specific, user-facing
   // reason so a failed repair is never silent again.
   async function repairTenantLegacyRows(t) {
     if (!t.dbId) return { ok: false, reason: "This tenant has no linked database record." };
-    if (!t.admissionDate) return { ok: false, reason: "This tenant is missing an admission date." };
-    if (!t.rentPaidOn) return { ok: false, reason: "This tenant has no current paid-through date to anchor from." };
     // IMPORTANT: this looks at the tenant's FULL row set, not just untagged
     // rows. repairTenantLegacyRows is only ever invoked after the caller has
     // already confirmed no valid mark_paid -> add_cycle chain exists for
@@ -2291,14 +2285,12 @@ function RentPage({ rooms, setRooms, today }) {
       .sort((a, b) => (a.id ?? 0) - (b.id ?? 0) || new Date(a.paid_at) - new Date(b.paid_at));
     if (rows.length === 0) return { ok: true, reason: null };
     const n = rows.length;
-    const boundaries = new Array(n);
-    boundaries[n - 1] = t.rentPaidOn;
-    for (let i = n - 2; i >= 0; i--) boundaries[i] = prevCycleBoundary(t, boundaries[i + 1]);
     try {
       for (let i = 0; i < n; i++) {
         const row = rows[i];
         const event_type = i === 0 ? "mark_paid" : "add_cycle";
-        const prev_rent_paid_on = i === 0 ? null : boundaries[i - 1];
+        // Real previous row's own paid_at — never a computed/idealized date.
+        const prev_rent_paid_on = i === 0 ? null : rows[i - 1].paid_at;
         // Skip the write if this row already has exactly the right tag --
         // keeps repair cheap and avoids needless PATCHes on rows that were
         // already correct.
