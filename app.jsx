@@ -2273,8 +2273,20 @@ function RentPage({ rooms, setRooms, today }) {
     if (!t.dbId) return { ok: false, reason: "This tenant has no linked database record." };
     if (!t.admissionDate) return { ok: false, reason: "This tenant is missing an admission date." };
     if (!t.rentPaidOn) return { ok: false, reason: "This tenant has no current paid-through date to anchor from." };
+    // IMPORTANT: this looks at the tenant's FULL row set, not just untagged
+    // rows. repairTenantLegacyRows is only ever invoked after the caller has
+    // already confirmed no valid mark_paid -> add_cycle chain exists for
+    // this tenant (see undoPaid), so it's always safe to re-derive tags
+    // across every row from scratch. Restricting to untagged rows used to
+    // cause a real bug: if a stray row was already (mis)tagged and happened
+    // to be OLDER than the untagged rows, repair would tag the oldest
+    // UNTAGGED row as "mark_paid" even though it wasn't actually the
+    // earliest payment -- producing a "mark_paid" that sits at the newest
+    // end of the chain with nothing after it to undo, i.e. exactly the
+    // "repair ran but still couldn't resolve a clear cycle" failure.
+    // Rebuilding from the true chronological order of ALL rows fixes that.
     const rows = (paymentsLog || [])
-      .filter(p => p.tenant_id === t.dbId && !p.event_type)
+      .filter(p => p.tenant_id === t.dbId)
       .slice()
       .sort((a, b) => (a.id ?? 0) - (b.id ?? 0) || new Date(a.paid_at) - new Date(b.paid_at));
     if (rows.length === 0) return { ok: true, reason: null };
@@ -2287,6 +2299,10 @@ function RentPage({ rooms, setRooms, today }) {
         const row = rows[i];
         const event_type = i === 0 ? "mark_paid" : "add_cycle";
         const prev_rent_paid_on = i === 0 ? null : boundaries[i - 1];
+        // Skip the write if this row already has exactly the right tag --
+        // keeps repair cheap and avoids needless PATCHes on rows that were
+        // already correct.
+        if (row.event_type === event_type && (row.prev_rent_paid_on || null) === (prev_rent_paid_on || null)) continue;
         const key = row.id != null ? `id=eq.${row.id}` : `receipt_no=eq.${row.receipt_no}`;
         await sbFetch(`/payments?${key}`, "PATCH", { event_type, prev_rent_paid_on }, { "Prefer": "return=minimal" });
         // Mutate in place so a tenantCycleChain() call made right after this
