@@ -4414,6 +4414,19 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
     setMoving(true);
     try {
       await sbFetch(`/tenants?id=eq.${tenant.dbId}`, "PATCH", tenantToDbFields(tenant, moveRoomId, moveBedIndex), { "Prefer": "return=minimal" });
+      // BUGFIX: keep the security_deposits ledger's room snapshot in sync.
+      // That table stores floor/room_number as they were at the moment the
+      // deposit was COLLECTED, purely for historical receipts — but the
+      // Deposits -> Held tab also reads those same columns to show staff
+      // which room a still-held deposit belongs to *right now*. Without
+      // this, a moved tenant's held deposit keeps pointing at the room they
+      // left, silently misleading whoever's working the Held list. Only the
+      // still-open (not yet returned) deposit for this tenant should move
+      // with them — a returned deposit is closed history and should keep
+      // showing the room it was actually returned in.
+      try {
+        await sbFetch(`/security_deposits?tenant_id=eq.${tenant.dbId}&returned_at=is.null`, "PATCH", { floor: targetRoom.floor, room_number: targetRoom.number }, { "Prefer": "return=minimal" });
+      } catch (e) { console.warn("Deposit room sync failed (non-fatal):", e); }
       const blankBed = { name: "", admissionDate: "", phone: "", billingType: "monthly", checkoutDate: "", aadharId: "", fatherName: "", fatherPhone: "", guardianName: "", guardianPhone: "", address: "", city: "", occupation: "", occupationPlace: "", occupationId: "", reasonToStay: "", rentAmount: "" };
       setRooms(prev => {
         const next = { ...prev };
