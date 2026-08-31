@@ -528,8 +528,21 @@ async function saveRoom(room, tenants) {
   if (toInsert.length > 0) {
     const payload = toInsert.map(ins => tenantToDbFields(ins.tenant, id, ins.bedIndex));
     const rows = await sbFetch("/tenants", "POST", payload, { "Prefer": "return=representation" });
-    toInsert.forEach((ins, idx) => {
-      const row = rows && rows[idx];
+    // BUGFIX: match each returned row back to its bed by bed_index, not by
+    // array position. A multi-row `INSERT ... RETURNING` (this POST, when
+    // toInsert.length > 1 — e.g. filling two empty beds in the same room in
+    // one Save) is NOT guaranteed by Postgres/PostgREST to return rows in
+    // the same order they were sent. Trusting `rows[idx] === toInsert[idx]`
+    // can silently hand the wrong dbId to the wrong bed — which then
+    // cross-links that tenant's entire payment/deposit history (everything
+    // is keyed off dbId) to a DIFFERENT person, and separately scrambles
+    // anything that sorts by dbId, like Recent Admissions on Home. Matching
+    // on bed_index (unique per room, present on every returned row) is
+    // correct regardless of what order the database hands rows back in.
+    const rowsByBed = {};
+    (rows || []).forEach(row => { rowsByBed[row.bed_index] = row; });
+    toInsert.forEach(ins => {
+      const row = rowsByBed[ins.bedIndex];
       if (row) resultTenants[ins.bedIndex].dbId = row.id;
     });
   }
