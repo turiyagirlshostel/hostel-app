@@ -667,6 +667,21 @@ function istNow() {
   const p = istParts(new Date());
   return new Date(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second));
 }
+// Same trick as istNow(), but for an arbitrary stored instant (e.g. a
+// rent_paid_on timestamp) instead of "right now". rent_paid_on is saved as
+// a raw new Date().toISOString() — a real UTC instant, with no timezone
+// info baked in. Feeding that straight into a Date and reading .getDate()/
+// .getMonth()/.getFullYear() off it (as the monthly-cycle math below used
+// to) resolves those calendar fields in whatever timezone the DEVICE
+// running the code happens to be set to, not India time — the same class
+// of bug istNow()/istParts() exist to prevent for "today", just reachable
+// through a stored payment date instead. This closes that gap: any Date
+// built via istDateFromIso() always reads back its IST calendar day,
+// regardless of device timezone, matching istNow()'s guarantee.
+function istDateFromIso(isoString) {
+  const p = istParts(new Date(isoString));
+  return new Date(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second));
+}
 // Wrapper around toLocaleDateString that always renders in India time.
 function fmtDateIST(d, opts = {}) {
   return d.toLocaleDateString("en-IN", { ...opts, timeZone: "Asia/Kolkata" });
@@ -744,7 +759,12 @@ function getRentStatus(admissionDate, today, rentPaidOn = null) {
   // all-anchor-days simulation before landing this fix.
   let firstMissedBoundary;
   if (rentPaidOn) {
-    const coveredCycleStart = getCycleStart(dueDay, new Date(rentPaidOn));
+    // istDateFromIso, not a raw `new Date(rentPaidOn)` — rent_paid_on is a
+    // real UTC instant, and getCycleStart reads calendar fields (day/month/
+    // year) off whatever Date it's handed. Without this, those fields
+    // resolve in the device's local timezone instead of IST, which can
+    // shift the covered cycle (and everything derived from it) by a day.
+    const coveredCycleStart = getCycleStart(dueDay, istDateFromIso(rentPaidOn));
     let y = coveredCycleStart.getFullYear(), m = coveredCycleStart.getMonth() + 1;
     if (m > 11) { m = 0; y++; }
     const daysInM = new Date(y, m + 1, 0).getDate();
@@ -906,7 +926,9 @@ function nextDueBoundaryForTenant(t, paidOnIso) {
     return new Date(coveredCycleStart.getTime() + 15 * MS_PER_DAY);
   }
   const dueDay = new Date(t.admissionDate + "T00:00:00").getDate();
-  const coveredCycleStart = getCycleStart(dueDay, new Date(paidOnIso));
+  // istDateFromIso here too — same reasoning as getRentStatus above: paidOnIso
+  // is a raw UTC instant, and getCycleStart needs its calendar day read in IST.
+  const coveredCycleStart = getCycleStart(dueDay, istDateFromIso(paidOnIso));
   let y = coveredCycleStart.getFullYear(), m = coveredCycleStart.getMonth() + 1;
   if (m > 11) { m = 0; y++; }
   const daysInM = new Date(y, m + 1, 0).getDate();
@@ -2191,7 +2213,11 @@ function RentPage({ rooms, setRooms, today }) {
   async function addCycle(t, paymentMode, note = "") {
     const is15 = (t.billingType || "monthly") === "15day";
     const ad = new Date(t.admissionDate + "T00:00:00");
-    const paidRef = t.rentPaidOn ? new Date(t.rentPaidOn) : ad;
+    // istDateFromIso — same reasoning as getRentStatus/nextDueBoundaryForTenant:
+    // t.rentPaidOn is a raw UTC instant, and the calendar math below (both the
+    // monthly getCycleStart branch and the is15 getCycleStart15 branch) needs
+    // it read as an IST calendar day/instant, not the device's local timezone.
+    const paidRef = t.rentPaidOn ? istDateFromIso(t.rentPaidOn) : ad;
 
     // Their REAL current "next due" boundary — same boundary getRentStatus
     // itself computes as firstMissedBoundary, so this always agrees with
