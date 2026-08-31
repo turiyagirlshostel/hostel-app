@@ -4082,7 +4082,27 @@ function DepositsPage({ rooms, setRooms, today }) {
 function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, isManager = true, initialStatusFilter = "all" }) {
   const [editingRoom, setEditingRoom] = useState(null);
   const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState(initialStatusFilter);
+  // Status filter is a "stack" — an array of active statuses (Empty/Partial/Full),
+  // so more than one can be selected at once. "all" is its own state meaning
+  // "no status restriction" and is mutually exclusive with the specific ones.
+  const [filterStatus, setFilterStatus] = useState([initialStatusFilter || "all"]);
+  function toggleStatusFilter(s) {
+    setFilterStatus(prev => {
+      if (s === "all") return ["all"];
+      const base = prev.includes("all") ? [] : prev;
+      const next = base.includes(s) ? base.filter(x => x !== s) : [...base, s];
+      return next.length === 0 ? ["all"] : next;
+    });
+  }
+  // Seat-count filter is also stackable — e.g. Single + Triple at once.
+  // Empty array = no restriction (shows all seat sizes).
+  const [filterSeats, setFilterSeats] = useState([]);
+  function toggleSeatFilter(n) {
+    setFilterSeats(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n]);
+  }
+  function seatLabel(n) {
+    return n === 1 ? "Single" : n === 2 ? "Double" : n === 3 ? "Triple" : n === 4 ? "Quad" : `${n}-Seater`;
+  }
   const [editForm, setEditForm] = useState(null);
   const [addingRoom, setAddingRoom] = useState(false);
   const [newRoomBeds, setNewRoomBeds] = useState(2);
@@ -4213,9 +4233,14 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
   const [moving, setMoving] = useState(false);
 
   const floorRooms = Object.values(rooms).filter(r => r.floor === activeFloor).sort((a, b) => a.number - b.number);
+  // Distinct seat sizes actually present on this floor, smallest first — the
+  // seat filter only ever shows buttons that would match at least one room.
+  const seatSizes = Array.from(new Set(floorRooms.map(r => r.beds))).sort((a, b) => a - b);
   const filtered = floorRooms.filter(r => {
     const matchSearch = !search || String(r.number).includes(search) || r.label.toLowerCase().includes(search.toLowerCase()) || r.tenants.some(t => t.name.toLowerCase().includes(search.toLowerCase()) || (t.phone || "").includes(search));
-    return matchSearch && (filterStatus === "all" || getRoomStatus(r) === filterStatus);
+    const matchStatus = filterStatus.includes("all") || filterStatus.includes(getRoomStatus(r));
+    const matchSeats = filterSeats.length === 0 || filterSeats.includes(r.beds);
+    return matchSearch && matchStatus && matchSeats;
   });
   const stats = {
     total: floorRooms.reduce((s, r) => s + r.beds, 0),
@@ -4451,15 +4476,38 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
         <input placeholder="🔍  Search room, name, phone…" value={search} onChange={e => setSearch(e.target.value)}
           style={{ padding: "10px 14px", borderRadius: 10, border: "1.5px solid #DCD5C6", fontSize: 14, outline: "none", width: "100%", background: "#fff", boxSizing: "border-box", marginBottom: 10 }} />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          {["all", "empty", "partial", "full"].map(s => (
-            <button key={s} onClick={() => setFilterStatus(s)} style={{
-              padding: "7px 14px", borderRadius: 8, border: "1.5px solid " + (filterStatus === s ? "#1D3833" : "#DCD5C6"),
-              background: filterStatus === s ? "#1D3833" : "#fff", color: filterStatus === s ? "#fff" : "#6B6459",
-              fontWeight: 600, fontSize: 12, cursor: "pointer",
-            }}>{s === "all" ? "All" : s.charAt(0).toUpperCase() + s.slice(1)}</button>
-          ))}
+          {["all", "empty", "partial", "full"].map(s => {
+            const active = filterStatus.includes(s);
+            return (
+              <button key={s} onClick={() => toggleStatusFilter(s)} style={{
+                padding: "7px 14px", borderRadius: 8, border: "1.5px solid " + (active ? "#1D3833" : "#DCD5C6"),
+                background: active ? "#1D3833" : "#fff", color: active ? "#fff" : "#6B6459",
+                fontWeight: 600, fontSize: 12, cursor: "pointer",
+              }}>{s === "all" ? "All" : s.charAt(0).toUpperCase() + s.slice(1)}</button>
+            );
+          })}
           <span style={{ fontSize: 12, color: "#9C9585", marginLeft: "auto" }}>{filtered.length} rooms</span>
         </div>
+        {seatSizes.length > 1 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+            <span style={{ fontSize: 11, color: "#9C9585", fontWeight: 600 }}>SEATS</span>
+            {seatSizes.map(n => {
+              const active = filterSeats.includes(n);
+              return (
+                <button key={n} onClick={() => toggleSeatFilter(n)} style={{
+                  padding: "6px 12px", borderRadius: 8, border: "1.5px solid " + (active ? "#6B4E86" : "#DCD5C6"),
+                  background: active ? "#6B4E86" : "#fff", color: active ? "#fff" : "#6B6459",
+                  fontWeight: 600, fontSize: 12, cursor: "pointer",
+                }}>{seatLabel(n)}</button>
+              );
+            })}
+            {filterSeats.length > 0 && (
+              <button onClick={() => setFilterSeats([])} style={{ padding: "6px 10px", borderRadius: 8, border: "1.5px solid #DCD5C6", background: "#fff", color: "#9C9585", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+                Clear
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(155px, 1fr))", gap: 10 }}>
