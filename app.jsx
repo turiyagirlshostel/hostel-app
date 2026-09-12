@@ -102,6 +102,11 @@ const SUPABASE_URL = "https://gqdywhlhpqogtlzhcqih.supabase.co";
 // change even via a direct API call, regardless of what the UI shows).
 const SUPER_ADMIN_EMAIL = "turiya.shubhsahu@gmail.com";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxZHl3aGxocHFvZ3RsemhjcWloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5MjY5NjksImV4cCI6MjA5ODUwMjk2OX0.HHFWg9errPSVdVru1sLZ-Z-xUsyr9q_5YUjPKsGOu9g";
+// Storage bucket holding the 4 tenant document photos (profile pic, aadhar
+// front/back, form). Private bucket — every read/write goes through the
+// logged-in admin's own token so Storage RLS applies. Adjust this name if
+// your bucket migration used a different one.
+const TENANT_DOCS_BUCKET = "tenant-documents";
 const HEADERS = {
   "Content-Type": "application/json",
   "apikey": SUPABASE_KEY,
@@ -297,6 +302,10 @@ async function loadAllRooms() {
         depositReturnedOn: t.deposit_returned_on || "",
         depositReturnAmount: t.deposit_return_amount || "",
         depositNote: t.deposit_note || "",
+        profilePicPath: t.profile_pic_path || "",
+        aadharFrontPath: t.aadhar_front_path || "",
+        aadharBackPath: t.aadhar_back_path || "",
+        formPath: t.form_path || "",
         dbId: t.id,
       };
     }
@@ -393,6 +402,10 @@ function tenantToDbFields(t, roomId, bedIndex) {
     deposit_returned_on: t.depositReturnedOn || null,
     deposit_return_amount: t.depositReturnAmount || null,
     deposit_note: t.depositNote || null,
+    profile_pic_path: t.profilePicPath || null,
+    aadhar_front_path: t.aadharFrontPath || null,
+    aadhar_back_path: t.aadharBackPath || null,
+    form_path: t.formPath || null,
   };
 }
 
@@ -496,6 +509,8 @@ async function saveRoom(room, tenants) {
         depositAmount: t.deposit_amount, depositPaidOn: t.deposit_paid_on,
         depositPaymentMode: t.deposit_payment_mode, depositReceiptNo: t.deposit_receipt_no,
         depositReturnedOn: t.deposit_returned_on, depositReturnAmount: t.deposit_return_amount,
+        profilePicPath: t.profile_pic_path, aadharFrontPath: t.aadhar_front_path,
+        aadharBackPath: t.aadhar_back_path, formPath: t.form_path,
         // Their real database id, captured NOW while it still exists — this
         // is what lets the admin History tab link straight to their exact
         // payment/deposit history later, instead of guessing by name/room.
@@ -584,9 +599,138 @@ async function archiveTenants(oldTenants, roomId, floor, roomNumber) {
       deposit_note: t.depositNote || null,
       tenant_id: t.tenantId || null,
       archived_at: new Date().toISOString(),
+      profile_pic_path: t.profilePicPath || null,
+      aadhar_front_path: t.aadharFrontPath || null,
+      aadhar_back_path: t.aadharBackPath || null,
+      form_path: t.formPath || null,
     }));
   if (toArchive.length === 0) return;
-  await sbFetch("/tenant_history", "POST", toArchive, { "Prefer": "return=minimal" });
+  // return=representation so we get each new tenant_history row's id back —
+  // that id is what the archive-tenant-documents function uses to know
+  // which row to attach the Drive PDF link to.
+  const inserted = await sbFetch("/tenant_history", "POST", toArchive, { "Prefer": "return=representation" });
+  // Fire off document archiving (photos → PDF → Drive, then delete the
+  // originals from Storage) in the background. This is best-effort cleanup:
+  // if it fails (offline, function cold-start error, etc.) the photos
+  // simply stay in Storage a bit longer — checkout itself is never blocked
+  // or shown as failed because of it.
+  (inserted || []).forEach(row => {
+    if (!row.profile_pic_path && !row.aadhar_front_path && !row.aadhar_back_path && !row.form_path) return;
+    archiveTenantDocuments(row.id).catch(e => console.warn("Document archiving failed (non-fatal):", e));
+  });
+}
+
+// Calls the archive-tenant-documents Supabase Edge Function for one
+// tenant_history row: it builds a single PDF (tenant details + the 4
+// photos), uploads it to the dedicated Google Drive account, writes the
+// shareable link back onto documents_pdf_url, then deletes the original
+// photos from Storage to free up space. See GOOGLE_DRIVE_SETUP.md for the
+// one-time setup this function depends on.
+async function archiveTenantDocuments(historyId) {
+  const userToken = (typeof localStorage !== "undefined") ? localStorage.getItem("sb_access_token") : null;
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/archive-tenant-documents`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${userToken || SUPABASE_KEY}`,
+    },
+    body: JSON.stringify({ history_id: historyId }),
+  });
+  if (!res.ok) throw new Error(`archive-tenant-documents: HTTP ${res.status}: ${await res.text()}`);
+}
+
+// ── TENANT DOCUMENT PHOTOS ──────────────────────────────────────
+// Resizes + re-encodes an image before upload so a 3-5MB phone photo
+// becomes a few hundred KB, without losing document legibility. Settings
+// are tuned to be document-safe (aadhar numbers, signatures, printed
+// text all stay sharp), not aggressive social-media-style compression:
+//   - 1800px max width — sharper than a typical flatbed scanner
+//   - 85% JPEG quality — visible only in smooth gradients, not on text
+// Non-image files (e.g. a "form" uploaded as a .pdf) pass through
+// untouched, since canvas can't process PDFs. Falls back to the original
+// file on any error, so a compression hiccup never blocks an upload.
+function compressImageFile(file, maxWidth = 1800, quality = 0.85) {
+  return new Promise((resolve) => {
+    if (!file || !file.type || !file.type.startsWith("image/") || file.type === "image/gif") {
+      resolve(file);
+      return;
+    }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxWidth / img.width);
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => {
+        if (!blob) { resolve(file); return; }
+        const newName = (file.name || "photo").replace(/\.[^.]+$/, "") + ".jpg";
+        resolve(new File([blob], newName, { type: "image/jpeg" }));
+      }, "image/jpeg", quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
+// Uploads one photo (profile pic / aadhar front / aadhar back / form) to
+// the private tenant-documents bucket and returns the storage path to save
+// on the tenant record. `folderKey` should be the tenant's dbId when known,
+// otherwise a stable per-form-session id so multiple photos for the same
+// not-yet-saved tenant land in the same folder.
+async function uploadTenantPhoto(folderKey, slotKey, file) {
+  if (!file) return null;
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const path = `tenants/${folderKey}/${slotKey}-${Date.now()}.${ext}`;
+  const userToken = (typeof localStorage !== "undefined") ? localStorage.getItem("sb_access_token") : null;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${TENANT_DOCS_BUCKET}/${path}`, {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${userToken || SUPABASE_KEY}`,
+      "Content-Type": file.type || "application/octet-stream",
+      "x-upsert": "true",
+    },
+    body: file,
+  });
+  if (!res.ok) throw new Error(`Photo upload failed: ${res.status} ${await res.text()}`);
+  return path;
+}
+
+// Deletes a previously-uploaded photo from Storage (used when the admin
+// replaces a photo with a new one, so the old file doesn't linger).
+async function deleteTenantPhoto(path) {
+  if (!path) return;
+  const userToken = (typeof localStorage !== "undefined") ? localStorage.getItem("sb_access_token") : null;
+  try {
+    await fetch(`${SUPABASE_URL}/storage/v1/object/${TENANT_DOCS_BUCKET}/${path}`, {
+      method: "DELETE",
+      headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${userToken || SUPABASE_KEY}` },
+    });
+  } catch (e) { console.warn("Old photo cleanup failed (non-fatal):", e); }
+}
+
+// Short-lived signed URL so an admin can view/download a private photo.
+async function getSignedPhotoUrl(path, expiresIn = 3600) {
+  if (!path) return null;
+  const userToken = (typeof localStorage !== "undefined") ? localStorage.getItem("sb_access_token") : null;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${TENANT_DOCS_BUCKET}/${path}`, {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${userToken || SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ expiresIn }),
+  });
+  if (!res.ok) throw new Error(`Sign failed: ${res.status}`);
+  const data = await res.json();
+  return `${SUPABASE_URL}/storage/v1${data.signedURL}`;
 }
 
 async function loadHistory() {
@@ -4300,6 +4444,28 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
   function updateTenant(i, field, value) {
     setEditForm(f => ({ ...f, tenants: f.tenants.map((t, idx) => idx === i ? { ...t, [field]: value } : t) }));
   }
+  // Uploads one document photo for bed `i` and saves its storage path onto
+  // the tenant record. Reuses the tenant's dbId as the storage folder when
+  // it already exists in the DB; otherwise generates a one-time id so all
+  // 4 photos for a brand-new (not-yet-saved) tenant land in the same folder.
+  async function handlePhotoSelect(i, t, slotKey, oldPath, file) {
+    let folderKey = t.dbId || t._docFolderId;
+    if (!folderKey) {
+      folderKey = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `tmp-${Date.now()}`;
+      updateTenant(i, "_docFolderId", folderKey);
+    }
+    updateTenant(i, "_uploading", { ...(t._uploading || {}), [slotKey]: true });
+    try {
+      const toUpload = await compressImageFile(file); // no-op for PDFs
+      const path = await uploadTenantPhoto(folderKey, slotKey, toUpload);
+      updateTenant(i, slotKey, path);
+      if (oldPath && oldPath !== path) deleteTenantPhoto(oldPath);
+    } catch (e) {
+      alert("Photo upload failed: " + e.message);
+    } finally {
+      updateTenant(i, "_uploading", { ...(t._uploading || {}), [slotKey]: false });
+    }
+  }
   const [clearConfirm, setClearConfirm] = useState(null); // { bedIndex, name }
   function clearTenant(i) {
     // NOTE: deposit fields (depositAmount, depositReturnedOn, etc.) are
@@ -4712,6 +4878,53 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                     {t.aadharId && t.aadharId.replace(/\D/g,"").length === 12 && (
                       <div style={{ fontSize: 10, color: "#3C8F5C" }}>✅ Valid Aadhar length</div>
                     )}
+                    {/* Document photos: profile pic + aadhar front/back + signed
+                        form. Stored in a private Storage bucket; once this
+                        tenant checks out, these move to an archived PDF on
+                        Drive (see History tab) and the originals are deleted
+                        to keep Supabase Storage free. */}
+                    <div style={{ borderTop: "1px solid #DCD5C6", paddingTop: 10, marginTop: 2 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>📎 DOCUMENT PHOTOS</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        {[
+                          { key: "profilePicPath", label: "Profile photo" },
+                          { key: "aadharFrontPath", label: "Aadhar (front)" },
+                          { key: "aadharBackPath", label: "Aadhar (back)" },
+                          { key: "formPath", label: "Signed form" },
+                        ].map(slot => (
+                          <div key={slot.key} style={{ fontSize: 11 }}>
+                            <div style={{ color: "#6B6459", marginBottom: 3 }}>{slot.label}</div>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              <label style={{ ...inputStyle, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: "6px 8px", fontSize: 11, flex: 1, textAlign: "center" }}>
+                                {t._uploading && t._uploading[slot.key] ? "Uploading…" : (t[slot.key] ? "✅ Replace" : "📷 Upload")}
+                                <input
+                                  type="file"
+                                  accept="image/*,.pdf"
+                                  style={{ display: "none" }}
+                                  onChange={e => {
+                                    const f = e.target.files && e.target.files[0];
+                                    e.target.value = "";
+                                    if (f) handlePhotoSelect(i, t, slot.key, t[slot.key], f);
+                                  }}
+                                />
+                              </label>
+                              {t[slot.key] && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    try { const url = await getSignedPhotoUrl(t[slot.key]); window.open(url, "_blank"); }
+                                    catch (e) { alert("Couldn't open photo: " + e.message); }
+                                  }}
+                                  style={{ border: "1px solid #DCD5C6", background: "#fff", borderRadius: 6, padding: "6px 8px", fontSize: 11, cursor: "pointer" }}
+                                >
+                                  View
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                     {/* Father details */}
                     <div style={{ borderTop: "1px solid #DCD5C6", paddingTop: 10, marginTop: 2 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>FATHER'S DETAILS</div>
@@ -5445,6 +5658,14 @@ function HistoryPage() {
                   {t.checkout_date && <span>🚪 Left: {fmt(t.checkout_date)}</span>}
                   {t.archived_at && <span>🗃️ Archived: {fmtDateIST(new Date(t.archived_at))}</span>}
                 </div>
+                {t.documents_pdf_url ? (
+                  <a href={t.documents_pdf_url} target="_blank" rel="noopener noreferrer"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#2B4B43", background: "#E7EFEA", borderRadius: 6, padding: "3px 8px", marginTop: 5, textDecoration: "none", fontWeight: 600 }}>
+                    📄 View photos &amp; form (PDF)
+                  </a>
+                ) : (t.profile_pic_path || t.aadhar_front_path || t.aadhar_back_path || t.form_path) ? (
+                  <div style={{ fontSize: 10, color: "#9C9585", marginTop: 5 }}>📎 Photos archiving…</div>
+                ) : null}
                 <PastTenantMoneyPanel t={t} />
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
