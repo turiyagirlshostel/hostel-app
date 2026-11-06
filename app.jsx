@@ -14,7 +14,7 @@ if (typeof document !== "undefined") {
   const style = document.createElement("style");
   style.textContent = `
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    body { margin: 0; overscroll-behavior: none; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+    body { margin: 0; font-variant-numeric: tabular-nums; overscroll-behavior: none; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
     input, button { font-family: inherit; }
     button { touch-action: manipulation; transition: transform 0.1s ease, opacity 0.15s ease; }
     button:active:not(:disabled) { transform: scale(0.97); }
@@ -24,17 +24,27 @@ if (typeof document !== "undefined") {
        assert a focus ring over inline border-color styles set throughout the
        app, without editing every individual input/button element. */
     input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
-      outline: 2px solid #2B4B43;
+      outline: 2px solid #3A41A0;
       outline-offset: 2px;
     }
     input:focus, select:focus, textarea:focus {
-      border-color: #2B4B43 !important;
-      box-shadow: 0 0 0 3px #2B4B431a;
+      border-color: #3A41A0 !important;
+      box-shadow: 0 0 0 3px #3A41A01a;
     }
     ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #C9C0AC; border-radius: 99px; }
-    ::-webkit-scrollbar-thumb:hover { background: #B8622E; }
+    ::-webkit-scrollbar-thumb { background: #C6CAE0; border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: #BF7408; }
+    html { -webkit-text-size-adjust: 100%; }
+    /* 100dvh tracks the visible screen as phone browser bars show and hide. */
+    [style*="min-height: 100vh"] { min-height: 100dvh !important; }
+    /* 16px inputs stop iPhones zooming in when a field is tapped. */
+    @media (pointer: coarse) { input, select, textarea { font-size: 16px !important; } }
+    /* Pop-up windows scroll instead of being cut off on short screens (phones held sideways). */
+    [style*="position: fixed"][style*="inset: 0"] { overflow-y: auto; align-items: safe center !important; }
+    @media (orientation: landscape) and (max-height: 480px) {
+      [style*="position: fixed"][style*="inset: 0"] { padding: 8px !important; }
+    }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
     }
@@ -733,6 +743,31 @@ async function getSignedPhotoUrl(path, expiresIn = 3600) {
   return `${SUPABASE_URL}/storage/v1${data.signedURL}`;
 }
 
+// Round badge showing a tenant's profile photo; falls back to its children
+// (the initial) when there is no photo. Signed URLs are cached so each photo
+// is requested once per session.
+const photoUrlCache = new Map();
+function TenantAvatar({ path, style, children }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    if (!path) { setUrl(null); return; }
+    const hit = photoUrlCache.get(path);
+    if (hit && hit.exp > Date.now()) { setUrl(hit.url); return; }
+    let live = true;
+    getSignedPhotoUrl(path)
+      .then(u => { photoUrlCache.set(path, { url: u, exp: Date.now() + 50 * 60 * 1000 }); if (live) setUrl(u); })
+      .catch(() => { if (live) setUrl(null); });
+    return () => { live = false; };
+  }, [path]);
+  return (
+    <div style={{ ...style, overflow: "hidden" }}>
+      {url
+        ? <img src={url} alt="" onError={() => setUrl(null)} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        : children}
+    </div>
+  );
+}
+
 async function loadHistory() {
   const rows = await sbFetch("/tenant_history?select=*&order=archived_at.desc&limit=10000");
   return rows || [];
@@ -1188,8 +1223,8 @@ function generateRentReceiptNo(t, cycleRefIso, nowIso) {
 
 const inputStyle = {
   width: "100%", padding: "11px 12px", borderRadius: 8,
-  border: "1.5px solid #DCD5C6", fontSize: 15, outline: "none",
-  boxSizing: "border-box", background: "#F6F3EA",
+  border: "1.5px solid #DFE2F0", fontSize: 15, outline: "none",
+  boxSizing: "border-box", background: "#F5F6FC",
 };
 
 // ── CONTACT BUTTONS ───────────────────────────────────────────
@@ -1210,7 +1245,7 @@ function ContactButtons({ phone, size = "normal" }) {
         style={{
           display: "flex", alignItems: "center", gap: isSmall ? 3 : 5,
           padding: isSmall ? "4px 8px" : "6px 12px",
-          background: "#1D3833", color: "#fff", borderRadius: 8,
+          background: "#1F2350", color: "#fff", borderRadius: 8,
           fontSize: isSmall ? 11 : 12, fontWeight: 700,
           textDecoration: "none", whiteSpace: "nowrap",
           transition: "opacity 0.15s",
@@ -1314,29 +1349,29 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
     return (
       <>
         {/* Top mini header */}
-        <div style={{ background: "#1D3833", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 8px #0005", padding: "0 16px", height: 54, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ background: "#1F2350", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 8px #0005", padding: "0 16px", height: 54, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 20 }}>🏨</span>
             <span style={{ fontWeight: 700, fontSize: 17, fontFamily: FONT_DISPLAY }}>Turiya Hostel</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ display: "flex", gap: 10, fontSize: 12, color: "#9C9585" }}>
-              <span>🛏 <b style={{ color: "#DCD5C6" }}>{allStats.totalBeds}</b></span>
-              <span>👤 <b style={{ color: "#B8622E" }}>{allStats.totalOcc}</b></span>
+            <div style={{ display: "flex", gap: 10, fontSize: 12, color: "#7F85A6" }}>
+              <span>🛏 <b style={{ color: "#DFE2F0" }}>{allStats.totalBeds}</b></span>
+              <span>👤 <b style={{ color: "#BF7408" }}>{allStats.totalOcc}</b></span>
             </div>
             <ThemeToggle theme={theme} onToggle={toggleTheme} compact />
-            <button onClick={supabaseAuth.signOut} style={{ background: "#ffffff18", border: "none", borderRadius: 8, padding: "6px 12px", color: "#DCD5C6", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Sign out</button>
+            <button onClick={supabaseAuth.signOut} style={{ background: "#ffffff18", border: "none", borderRadius: 8, padding: "6px 12px", color: "#DFE2F0", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Sign out</button>
           </div>
         </div>
         {/* Bottom tab bar */}
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#1D3833", zIndex: 50, display: "flex", borderTop: "1px solid #ffffff15", paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#1F2350", zIndex: 50, display: "flex", borderTop: "1px solid #ffffff15", paddingBottom: "env(safe-area-inset-bottom)" }}>
           {NAV_ITEMS.map(n => (
             <button key={n.id} onClick={() => setPage(n.id)} style={{
               flex: 1, padding: "9px 4px 11px", border: "none", background: "none",
-              color: page === n.id ? "#B8622E" : "#9C9585",
+              color: page === n.id ? "#BF7408" : "#7F85A6",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
               cursor: "pointer", position: "relative",
-              borderTop: page === n.id ? "2.5px solid #B8622E" : "2.5px solid transparent",
+              borderTop: page === n.id ? "2.5px solid #BF7408" : "2.5px solid transparent",
             }}>
               <span style={{ fontSize: 19 }}>{n.icon}</span>
               <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.2px" }}>{n.label}</span>
@@ -1352,7 +1387,7 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
 
   // Desktop nav
   return (
-    <div style={{ background: "#1D3833", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 12px #0005" }}>
+    <div style={{ background: "#1F2350", color: "#fff", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 2px 12px #0005" }}>
       <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", height: 64, padding: "0 20px", gap: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 28 }}>
           <span style={{ fontSize: 22 }}>🏨</span>
@@ -1366,7 +1401,7 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
               color: page === n.id ? "#fff" : "#C9C2B4",
               fontWeight: 700, fontSize: 14, cursor: "pointer",
               display: "flex", alignItems: "center", gap: 6,
-              borderBottom: page === n.id ? "2.5px solid #B8622E" : "2.5px solid transparent",
+              borderBottom: page === n.id ? "2.5px solid #BF7408" : "2.5px solid transparent",
               position: "relative",
             }}>
               <span>{n.icon}</span>
@@ -1379,13 +1414,13 @@ function Nav({ page, setPage, allStats, rentAlerts, user, userRole, isAdmin, isM
         </div>
         <div style={{ display: "flex", gap: 16, fontSize: 13, color: "#C9C2B4", flexShrink: 0, alignItems: "center" }}>
           <span>🛏 <b style={{ color: "#fff" }}>{allStats.totalBeds}</b></span>
-          <span>👤 <b style={{ color: "#B8622E" }}>{allStats.totalOcc}</b></span>
+          <span>👤 <b style={{ color: "#BF7408" }}>{allStats.totalOcc}</b></span>
           <span>✅ <b style={{ color: "#6FAE84" }}>{allStats.totalBeds - allStats.totalOcc}</b></span>
           {user && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 8, paddingLeft: 14, borderLeft: "1px solid #ffffff22" }}>
-              <span style={{ fontSize: 11.5, background: role === "admin" ? "#2B4B43" : role === "manager" ? "#2F6B44" : "#A9822F", color: "#fff", padding: "3px 10px", borderRadius: 99, fontWeight: 700, textTransform: "capitalize" }}>{role}</span>
+              <span style={{ fontSize: 11.5, background: role === "admin" ? "#3A41A0" : role === "manager" ? "#2F6B44" : "#A9822F", color: "#fff", padding: "3px 10px", borderRadius: 99, fontWeight: 700, textTransform: "capitalize" }}>{role}</span>
               <ThemeToggle theme={theme} onToggle={toggleTheme} />
-              <button onClick={supabaseAuth.signOut} style={{ background: "#ffffff18", border: "none", borderRadius: 8, padding: "6px 14px", color: "#DCD5C6", fontSize: 13, cursor: "pointer", fontWeight: 700 }}>Sign out</button>
+              <button onClick={supabaseAuth.signOut} style={{ background: "#ffffff18", border: "none", borderRadius: 8, padding: "6px 14px", color: "#DFE2F0", fontSize: 13, cursor: "pointer", fontWeight: 700 }}>Sign out</button>
             </div>
           )}
         </div>
@@ -1422,7 +1457,7 @@ function MiniCompareBars({ a, b, color }) {
   const max = Math.max(1, a, b);
   return (
     <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 30, marginTop: 8 }}>
-      <div style={{ width: 12, height: `${Math.max(4, (a / max) * 30)}px`, background: "#DCD5C6", borderRadius: "3px 3px 1px 1px" }} title="Last month" />
+      <div style={{ width: 12, height: `${Math.max(4, (a / max) * 30)}px`, background: "#DFE2F0", borderRadius: "3px 3px 1px 1px" }} title="Last month" />
       <div style={{ width: 12, height: `${Math.max(4, (b / max) * 30)}px`, background: `linear-gradient(180deg, ${color}CC, ${color})`, borderRadius: "3px 3px 1px 1px", boxShadow: `0 1px 4px ${color}44` }} title="This month" />
     </div>
   );
@@ -1457,7 +1492,7 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
     };
   });
 
-  const barColors = ["#2B4B43", "#6B4E86", "#A9822F", "#3D7A6E", "#A8375F"];
+  const barColors = ["#3A41A0", "#6B4E86", "#A9822F", "#5A60B0", "#A8375F"];
 
   // Rent alerts for home — only UNPAID tenants should ever trigger an alert,
   // and both Monthly and 15-Day billing types need checking (Daily has no cycle).
@@ -1512,8 +1547,8 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 12px 90px" }}>
       <div style={{ marginBottom: 16 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 600, margin: "0 0 3px", letterSpacing: "-0.3px", color: "#1D3833", fontFamily: FONT_DISPLAY }}>Dashboard</h1>
-        <p style={{ margin: 0, color: "#6B6459", fontSize: 14.5 }}>3 floors · {all.length} rooms · {totalBeds} beds total</p>
+        <h1 style={{ fontSize: 28, fontWeight: 600, margin: "0 0 3px", letterSpacing: "-0.3px", color: "#1F2350", fontFamily: FONT_DISPLAY }}>Dashboard</h1>
+        <p style={{ margin: 0, color: "#5C6180", fontSize: 14.5 }}>3 floors · {all.length} rooms · {totalBeds} beds total</p>
       </div>
 
       {/* Rent alerts banner (managers/admins only) */}
@@ -1553,34 +1588,34 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
       {isManager && (
         <div style={{ background: "#fff", borderRadius: 14, padding: 16, marginBottom: 18, boxShadow: "0 1px 4px #0001" }}>
           <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 2 }}>📈 This Month vs Last Month</div>
-          <div style={{ fontSize: 12, color: "#9C9585", marginBottom: 14 }}>{today.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</div>
+          <div style={{ fontSize: 12, color: "#7F85A6", marginBottom: 14 }}>{today.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</div>
           {trendPayments === null || trendDeposits === null ? (
-            <div style={{ textAlign: "center", color: "#9C9585", padding: 10, fontSize: 13 }}>Loading trend data…</div>
+            <div style={{ textAlign: "center", color: "#7F85A6", padding: 10, fontSize: 13 }}>Loading trend data…</div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14 }}>
               <div>
-                <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>RENT COLLECTED</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: "#1D3833" }}>₹{rentThisTotal.toLocaleString("en-IN")}</div>
+                <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>RENT COLLECTED</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#1F2350" }}>₹{rentThisTotal.toLocaleString("en-IN")}</div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: rentChangePct >= 0 ? "#2F6B44" : "#A83D2A" }}>
-                  {rentChangePct >= 0 ? "▲" : "▼"} {Math.abs(rentChangePct)}% <span style={{ color: "#9C9585", fontWeight: 500 }}>vs ₹{rentLastTotal.toLocaleString("en-IN")} last month</span>
+                  {rentChangePct >= 0 ? "▲" : "▼"} {Math.abs(rentChangePct)}% <span style={{ color: "#7F85A6", fontWeight: 500 }}>vs ₹{rentLastTotal.toLocaleString("en-IN")} last month</span>
                 </div>
-                <MiniCompareBars a={rentLastTotal} b={rentThisTotal} color="#2B4B43" />
+                <MiniCompareBars a={rentLastTotal} b={rentThisTotal} color="#3A41A0" />
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>DEPOSITS COLLECTED</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: "#1D3833" }}>₹{depositsThisTotal.toLocaleString("en-IN")}</div>
-                <div style={{ fontSize: 12, color: "#9C9585" }}>vs ₹{depositsLastTotal.toLocaleString("en-IN")} last month</div>
+                <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>DEPOSITS COLLECTED</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#1F2350" }}>₹{depositsThisTotal.toLocaleString("en-IN")}</div>
+                <div style={{ fontSize: 12, color: "#7F85A6" }}>vs ₹{depositsLastTotal.toLocaleString("en-IN")} last month</div>
                 <MiniCompareBars a={depositsLastTotal} b={depositsThisTotal} color="#6B4E86" />
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>DEPOSITS CURRENTLY HELD</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: "#1D3833" }}>₹{depositsHeldNow.toLocaleString("en-IN")}</div>
-                <div style={{ fontSize: 12, color: "#9C9585" }}>live snapshot, not a monthly trend</div>
+                <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>DEPOSITS CURRENTLY HELD</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#1F2350" }}>₹{depositsHeldNow.toLocaleString("en-IN")}</div>
+                <div style={{ fontSize: 12, color: "#7F85A6" }}>live snapshot, not a monthly trend</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>NEW TENANTS</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: "#1D3833" }}>{newTenantsThisMonth}</div>
-                <div style={{ fontSize: 12, color: "#9C9585" }}>vs {newTenantsLastMonth} last month</div>
+                <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>NEW TENANTS</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#1F2350" }}>{newTenantsThisMonth}</div>
+                <div style={{ fontSize: 12, color: "#7F85A6" }}>vs {newTenantsLastMonth} last month</div>
               </div>
             </div>
           )}
@@ -1590,13 +1625,13 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
       {/* KPI Grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 18 }}>
         {[
-          { icon: "🛏", label: "Total Beds", value: totalBeds, color: "#2B4B43", bg: "#E7EFEA" },
+          { icon: "🛏", label: "Total Beds", value: totalBeds, color: "#3A41A0", bg: "#E9EBFA" },
           { icon: "👤", label: "Occupied", value: totalOcc, color: "#C1543C", bg: "#FBEEEA", goTo: "search" },
           { icon: "✅", label: "Available", value: totalFree, color: "#2F6B44", bg: "#EBF3EC", statusFilter: "partial" },
           { icon: "🏠", label: "Total Rooms", value: all.length, color: "#6B4E86", bg: "#F1ECF5", statusFilter: "all" },
-          { icon: "🔴", label: "Full Rooms", value: fullRooms, color: "#A8481F", bg: "#fff7ed", statusFilter: "full" },
+          { icon: "🔴", label: "Full Rooms", value: fullRooms, color: "#A15F06", bg: "#FFF6E4", statusFilter: "full" },
           { icon: "🟡", label: "Partial", value: partialRooms, color: "#A9822F", bg: "#FBF6E3", statusFilter: "partial" },
-          { icon: "🟢", label: "Empty", value: emptyRooms, color: "#3D7A6E", bg: "#EAF3EC", statusFilter: "empty" },
+          { icon: "🟢", label: "Empty", value: emptyRooms, color: "#5A60B0", bg: "#EAF3EC", statusFilter: "empty" },
           { icon: "📊", label: "Occupancy", value: `${occPct}%`, color: "#3A4A8F", bg: "#ECEEF7" },
         ].map(c => (
           <div key={c.label}
@@ -1604,7 +1639,7 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
             style={{ background: c.bg, borderRadius: 12, padding: "16px 18px", border: `1.5px solid ${c.color}33`, cursor: (c.statusFilter || c.goTo) ? "pointer" : "default" }}>
             <div style={{ fontSize: 20, marginBottom: 6 }}>{c.icon}</div>
             <div style={{ fontSize: 27, fontWeight: 600, color: c.color, lineHeight: 1, fontFamily: FONT_DISPLAY }}>{c.value}</div>
-            <div style={{ fontSize: 12, color: "#57524A", marginTop: 4, fontWeight: 600 }}>{c.label}{(c.statusFilter || c.goTo) && " →"}</div>
+            <div style={{ fontSize: 12, color: "#454A6B", marginTop: 4, fontWeight: 600 }}>{c.label}{(c.statusFilter || c.goTo) && " →"}</div>
           </div>
         ))}
       </div>
@@ -1613,14 +1648,14 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
       {all.length > 0 && (
         <div style={{ marginBottom: 18 }}>
           <div style={{ display: "flex", borderRadius: 10, overflow: "hidden", height: 16, boxShadow: "0 1px 4px #0002", gap: 2 }}>
-            {fullRooms > 0 && <div style={{ width: `${(fullRooms/all.length)*100}%`, background: "linear-gradient(90deg, #A8481FCC, #A8481F)" }} title={`${fullRooms} full`} />}
+            {fullRooms > 0 && <div style={{ width: `${(fullRooms/all.length)*100}%`, background: "linear-gradient(90deg, #A15F06CC, #A15F06)" }} title={`${fullRooms} full`} />}
             {partialRooms > 0 && <div style={{ width: `${(partialRooms/all.length)*100}%`, background: "linear-gradient(90deg, #A9822FCC, #A9822F)" }} title={`${partialRooms} partial`} />}
-            {emptyRooms > 0 && <div style={{ width: `${(emptyRooms/all.length)*100}%`, background: "linear-gradient(90deg, #3D7A6ECC, #3D7A6E)" }} title={`${emptyRooms} empty`} />}
+            {emptyRooms > 0 && <div style={{ width: `${(emptyRooms/all.length)*100}%`, background: "linear-gradient(90deg, #5A60B0CC, #5A60B0)" }} title={`${emptyRooms} empty`} />}
           </div>
-          <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 12, color: "#57524A", flexWrap: "wrap" }}>
-            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#A8481F", marginRight: 4 }} />Full {fullRooms}</span>
+          <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 12, color: "#454A6B", flexWrap: "wrap" }}>
+            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#A15F06", marginRight: 4 }} />Full {fullRooms}</span>
             <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#A9822F", marginRight: 4 }} />Partial {partialRooms}</span>
-            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#3D7A6E", marginRight: 4 }} />Empty {emptyRooms}</span>
+            <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#5A60B0", marginRight: 4 }} />Empty {emptyRooms}</span>
           </div>
         </div>
       )}
@@ -1631,24 +1666,24 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
         <div style={{ background: "#fff", borderRadius: 14, padding: "20px", boxShadow: "0 1px 4px #0001" }}>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16 }}>Overall Occupancy</div>
           <div style={{ display: "flex", alignItems: "center", gap: 24, marginBottom: 16 }}>
-            <DonutChart pct={occPct} color="#2B4B43" size={90} />
+            <DonutChart pct={occPct} color="#3A41A0" size={90} />
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {[{ label: "Occupied", value: totalOcc, color: "#C1543C" }, { label: "Free", value: totalFree, color: "#2F6B44" }].map(item => (
                 <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <div style={{ width: 9, height: 9, borderRadius: "50%", background: item.color }} />
-                  <span style={{ fontSize: 13.5, color: "#3A362E" }}>{item.label}</span>
+                  <span style={{ fontSize: 13.5, color: "#2B2F52" }}>{item.label}</span>
                   <span style={{ fontWeight: 700, marginLeft: "auto", paddingLeft: 12, fontSize: 15 }}>{item.value}</span>
                 </div>
               ))}
             </div>
           </div>
-          <div style={{ borderTop: "1px solid #F2EEE4", paddingTop: 14 }}>
-            <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 600, marginBottom: 8 }}>ROOM STATUS</div>
+          <div style={{ borderTop: "1px solid #EEF0F9", paddingTop: 14 }}>
+            <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 600, marginBottom: 8 }}>ROOM STATUS</div>
             <div style={{ display: "flex", gap: 8 }}>
               {[{ label: "Full", value: fullRooms, color: "#C1543C", bg: "#FBEEEA", statusFilter: "full" }, { label: "Partial", value: partialRooms, color: "#C1861F", bg: "#FBF3E1", statusFilter: "partial" }, { label: "Empty", value: emptyRooms, color: "#3C8F5C", bg: "#EBF3EC", statusFilter: "empty" }].map(s => (
                 <div key={s.label} onClick={() => { setRoomsInitialStatusFilter(s.statusFilter); setPage("rooms"); }} style={{ flex: 1, textAlign: "center", background: s.bg, borderRadius: 8, padding: "8px 4px", cursor: "pointer" }}>
                   <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: 10, color: "#6B6459" }}>{s.label}</div>
+                  <div style={{ fontSize: 10, color: "#5C6180" }}>{s.label}</div>
                 </div>
               ))}
             </div>
@@ -1662,17 +1697,17 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
             const pct = fs.beds > 0 ? Math.round((fs.occ / fs.beds) * 100) : 0;
             return (
               <div key={fs.f} onClick={() => { setActiveFloor(fs.f); setPage("rooms"); }}
-                style={{ marginBottom: 14, cursor: "pointer", padding: "10px 12px", borderRadius: 10, border: "1px solid #F2EEE4", transition: "border-color 0.15s" }}
+                style={{ marginBottom: 14, cursor: "pointer", padding: "10px 12px", borderRadius: 10, border: "1px solid #EEF0F9", transition: "border-color 0.15s" }}
                 onMouseEnter={e => e.currentTarget.style.borderColor = barColors[idx]}
-                onMouseLeave={e => e.currentTarget.style.borderColor = "#F2EEE4"}>
+                onMouseLeave={e => e.currentTarget.style.borderColor = "#EEF0F9"}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                   <span style={{ fontWeight: 600, fontSize: 14 }}>{FLOOR_LABELS[fs.f]}</span>
-                  <span style={{ fontSize: 12, color: "#6B6459" }}>{fs.occ}/{fs.beds} beds ({pct}%)</span>
+                  <span style={{ fontSize: 12, color: "#5C6180" }}>{fs.occ}/{fs.beds} beds ({pct}%)</span>
                 </div>
-                <div style={{ height: 8, background: "#F2EEE4", borderRadius: 99, overflow: "hidden" }}>
+                <div style={{ height: 8, background: "#EEF0F9", borderRadius: 99, overflow: "hidden" }}>
                   <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${barColors[idx]}AA, ${barColors[idx]})`, borderRadius: 99, boxShadow: `0 0 6px ${barColors[idx]}55` }} />
                 </div>
-                <div style={{ marginTop: 5, fontSize: 11, color: "#9C9585" }}>{fs.full} full · {fs.empty} empty · Click to manage →</div>
+                <div style={{ marginTop: 5, fontSize: 11, color: "#7F85A6" }}>{fs.full} full · {fs.empty} empty · Click to manage →</div>
               </div>
             );
           })}
@@ -1683,18 +1718,18 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 18 }}>
         {floorStats.map((fs, idx) => (
           <div key={fs.f} onClick={() => { setActiveFloor(fs.f); setPage("rooms"); }}
-            style={{ background: "#fff", borderRadius: 12, padding: "16px", boxShadow: "0 1px 4px #0001", cursor: "pointer", border: "1.5px solid #F2EEE4", transition: "border-color 0.15s, box-shadow 0.15s" }}
+            style={{ background: "#fff", borderRadius: 12, padding: "16px", boxShadow: "0 1px 4px #0001", cursor: "pointer", border: "1.5px solid #EEF0F9", transition: "border-color 0.15s, box-shadow 0.15s" }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = barColors[idx]; e.currentTarget.style.boxShadow = "0 4px 16px #0002"; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = "#F2EEE4"; e.currentTarget.style.boxShadow = "0 1px 4px #0001"; }}>
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "#EEF0F9"; e.currentTarget.style.boxShadow = "0 1px 4px #0001"; }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
               <span style={{ fontWeight: 700, fontSize: 15 }}>{FLOOR_LABELS[fs.f]}</span>
               <span style={{ fontSize: 10, background: barColors[idx] + "22", color: barColors[idx], fontWeight: 700, padding: "2px 8px", borderRadius: 99 }}>{fs.beds > 0 ? Math.round((fs.occ/fs.beds)*100) : 0}%</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
               {[{ label: "Beds", value: fs.beds }, { label: "Occupied", value: fs.occ }, { label: "Full rooms", value: fs.full }, { label: "Empty", value: fs.empty }].map(item => (
-                <div key={item.label} style={{ background: "#F6F3EA", borderRadius: 8, padding: "8px 10px" }}>
+                <div key={item.label} style={{ background: "#F5F6FC", borderRadius: 8, padding: "8px 10px" }}>
                   <div style={{ fontSize: 17, fontWeight: 700 }}>{item.value}</div>
-                  <div style={{ fontSize: 10, color: "#9C9585" }}>{item.label}</div>
+                  <div style={{ fontSize: 10, color: "#7F85A6" }}>{item.label}</div>
                 </div>
               ))}
             </div>
@@ -1706,23 +1741,23 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
       <div style={{ background: "#fff", borderRadius: 14, padding: "20px", boxShadow: "0 1px 4px #0001" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>Recent Admissions</div>
-          <button onClick={() => setPage("search")} style={{ fontSize: 13, color: "#2B4B43", background: "none", border: "none", cursor: "pointer", fontWeight: 700 }}>Search all →</button>
+          <button onClick={() => setPage("search")} style={{ fontSize: 13, color: "#3A41A0", background: "none", border: "none", cursor: "pointer", fontWeight: 700 }}>Search all →</button>
         </div>
         {recentTenants.length === 0
-          ? <div style={{ textAlign: "center", padding: "24px 0", color: "#9C9585", fontSize: 14 }}>No tenants yet. Add from the Rooms page.</div>
+          ? <div style={{ textAlign: "center", padding: "24px 0", color: "#7F85A6", fontSize: 14 }}>No tenants yet. Add from the Rooms page.</div>
           : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {recentTenants.map((t, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: "#F6F3EA", borderRadius: 10, border: "1px solid #DCD5C6" }}>
-                  <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#1D3833", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: "#F5F6FC", borderRadius: 10, border: "1px solid #DFE2F0" }}>
+                  <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#1F2350", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
                     {t.name.charAt(0).toUpperCase()}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</div>
-                    <div style={{ fontSize: 12, color: "#9C9585" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
+                    <div style={{ fontSize: 12, color: "#7F85A6" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    {t.phone && <div style={{ fontSize: 12, color: "#3A362E" }}>📞 {t.phone}</div>}
-                    {t.admissionDate && <div style={{ fontSize: 11, color: "#9C9585" }}>{fmt(t.admissionDate)}</div>}
+                    {t.phone && <div style={{ fontSize: 12, color: "#2B2F52" }}>📞 {t.phone}</div>}
+                    {t.admissionDate && <div style={{ fontSize: 11, color: "#7F85A6" }}>{fmt(t.admissionDate)}</div>}
                   </div>
                 </div>
               ))}
@@ -1734,6 +1769,14 @@ function HomePage({ rooms, setPage, setActiveFloor, today, isManager = true, set
 }
 
 // ── TENANT SEARCH PAGE ────────────────────────────────────────
+// Every word typed must appear in the tenant's name, phone, room, floor, room
+// label or workplace, in any order ("priya 204" or "floor 2 infosys" both work).
+function tenantMatches(t, query) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = [t.name, t.phone, t.roomNumber, t.floor, FLOOR_LABELS[t.floor], t.roomLabel, t.occupationPlace].join(" ").toLowerCase();
+  return words.every(w => hay.includes(w));
+}
 function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true, isAdmin = false }) {
   const [query, setQuery] = useState("");
   const [companyFilter, setCompanyFilter] = useState("all");
@@ -1742,14 +1785,7 @@ function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true, is
   const companies = Array.from(new Set(allTenants.map(t => (t.occupationPlace || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
 
   const results = allTenants.filter(t => {
-    const matchesQuery = query.trim().length === 0 || (
-      t.name.toLowerCase().includes(query.toLowerCase()) ||
-      (t.phone || "").includes(query) ||
-      String(t.roomNumber).includes(query) ||
-      String(t.floor).includes(query) ||
-      (t.roomLabel || "").toLowerCase().includes(query.toLowerCase()) ||
-      (t.occupationPlace || "").toLowerCase().includes(query.toLowerCase())
-    );
+    const matchesQuery = tenantMatches(t, query);
     const matchesCompany = companyFilter === "all" || t.occupationPlace === companyFilter;
     return matchesQuery && matchesCompany;
   });
@@ -1780,7 +1816,7 @@ function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true, is
       <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 600, margin: "0 0 3px", fontFamily: FONT_DISPLAY }}>Tenant Search</h1>
-          <p style={{ margin: 0, color: "#6B6459", fontSize: 14 }}>{allTenants.length} tenants across all floors</p>
+          <p style={{ margin: 0, color: "#5C6180", fontSize: 14 }}>{allTenants.length} tenants across all floors</p>
         </div>
         {isAdmin && (
           <button onClick={exportCurrentTenantsCSV} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid #A8CDB0", background: "#EBF3EC", color: "#2F6B44", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
@@ -1796,29 +1832,29 @@ function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true, is
           placeholder="Search by name, phone, room number, floor, company…"
           value={query}
           onChange={e => setQuery(e.target.value)}
-          style={{ ...inputStyle, paddingLeft: 40, fontSize: 15, padding: "12px 14px 12px 40px", borderRadius: 12, border: "2px solid #DCD5C6" }}
+          style={{ ...inputStyle, paddingLeft: 40, fontSize: 15, padding: "12px 14px 12px 40px", borderRadius: 12, border: "2px solid #DFE2F0" }}
         />
         {query && (
-          <button onClick={() => setQuery("")} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "#DCD5C6", border: "none", borderRadius: "50%", width: 22, height: 22, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+          <button onClick={() => setQuery("")} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "#DFE2F0", border: "none", borderRadius: "50%", width: 22, height: 22, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
         )}
       </div>
 
       {isManager && companies.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 6 }}>FILTER BY COMPANY / PLACE</label>
-          <select value={companyFilter} onChange={e => setCompanyFilter(e.target.value)} style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #DCD5C6", fontSize: 14, background: "#fff" }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", display: "block", marginBottom: 6 }}>FILTER BY COMPANY / PLACE</label>
+          <select value={companyFilter} onChange={e => setCompanyFilter(e.target.value)} style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #DFE2F0", fontSize: 14, background: "#fff" }}>
             <option value="all">All companies/places</option>
             {companies.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
       )}
 
-      <div style={{ fontSize: 13, color: "#9C9585", marginBottom: 12 }}>
+      <div style={{ fontSize: 13, color: "#7F85A6", marginBottom: 12 }}>
         {(query || companyFilter !== "all") ? `${results.length} result${results.length !== 1 ? "s" : ""}${query ? ` for "${query}"` : ""}${companyFilter !== "all" ? ` at ${companyFilter}` : ""}` : `Showing all ${results.length} tenants`}
       </div>
 
       {results.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: "#9C9585" }}>
+        <div style={{ textAlign: "center", padding: "48px 0", color: "#7F85A6" }}>
           <div style={{ fontSize: 36, marginBottom: 10 }}>🔍</div>
           <div style={{ fontSize: 16, fontWeight: 600 }}>No tenants found</div>
           <div style={{ fontSize: 13, marginTop: 4 }}>Try a different name or phone number</div>
@@ -1827,36 +1863,36 @@ function TenantSearchPage({ rooms, setPage, setActiveFloor, isManager = true, is
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {results.map((t, i) => (
             <div key={i} onClick={() => { setActiveFloor(t.floor); setPage("rooms"); }}
-              style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: "1.5px solid #DCD5C6", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, transition: "border-color 0.15s, box-shadow 0.15s" }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = "#2B4B43"; e.currentTarget.style.boxShadow = "0 2px 12px #0002"; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = "#DCD5C6"; e.currentTarget.style.boxShadow = "none"; }}>
-              <div style={{ width: 42, height: 42, borderRadius: "50%", background: "#1D3833", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 17, flexShrink: 0 }}>
+              style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: "1.5px solid #DFE2F0", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, transition: "border-color 0.15s, box-shadow 0.15s" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#3A41A0"; e.currentTarget.style.boxShadow = "0 2px 12px #0002"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#DFE2F0"; e.currentTarget.style.boxShadow = "none"; }}>
+              <div style={{ width: 42, height: 42, borderRadius: "50%", background: "#1F2350", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 17, flexShrink: 0 }}>
                 {t.name.charAt(0).toUpperCase()}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{t.name}</div>
-                <div style={{ fontSize: 12, color: "#6B6459", marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: "#5C6180", marginTop: 2 }}>
                   Floor {t.floor} · Room {t.roomNumber}{t.roomLabel ? ` (${t.roomLabel})` : ""} · Bed {t.bed}
                 </div>
                 {isManager && t.admissionDate && (
-                  <div style={{ fontSize: 11, color: "#9C9585", marginTop: 2 }}>Admitted: {fmt(t.admissionDate)}</div>
+                  <div style={{ fontSize: 11, color: "#7F85A6", marginTop: 2 }}>Admitted: {fmt(t.admissionDate)}</div>
                 )}
-                {isManager && t.fatherName && <div style={{ fontSize: 11, color: "#6B6459", marginTop: 1 }}>👨 Father: {t.fatherName}{t.fatherPhone ? ` · ${t.fatherPhone}` : ""}</div>}
-                {isManager && t.guardianName && <div style={{ fontSize: 11, color: "#6B6459", marginTop: 1 }}>🛡️ Guardian: {t.guardianName}{t.guardianPhone ? ` · ${t.guardianPhone}` : ""}</div>}
-                {isManager && (t.city || t.address) && <div style={{ fontSize: 11, color: "#6B6459", marginTop: 1 }}>📍 {[t.city, t.address].filter(Boolean).join(", ")}</div>}
-                {isManager && t.occupationPlace && <div style={{ fontSize: 11, color: "#6B6459", marginTop: 1 }}>💼 {t.occupation === "job" ? "Works at" : t.occupation === "college" ? "Studies at" : "At"}: {t.occupationPlace}{t.occupationId ? ` (ID: ${t.occupationId})` : ""}</div>}
-                {isManager && t.reasonToStay && <div style={{ fontSize: 11, color: "#9C9585", marginTop: 1, fontStyle: "italic" }}>"{t.reasonToStay}"</div>}
+                {isManager && t.fatherName && <div style={{ fontSize: 11, color: "#5C6180", marginTop: 1 }}>👨 Father: {t.fatherName}{t.fatherPhone ? ` · ${t.fatherPhone}` : ""}</div>}
+                {isManager && t.guardianName && <div style={{ fontSize: 11, color: "#5C6180", marginTop: 1 }}>🛡️ Guardian: {t.guardianName}{t.guardianPhone ? ` · ${t.guardianPhone}` : ""}</div>}
+                {isManager && (t.city || t.address) && <div style={{ fontSize: 11, color: "#5C6180", marginTop: 1 }}>📍 {[t.city, t.address].filter(Boolean).join(", ")}</div>}
+                {isManager && t.occupationPlace && <div style={{ fontSize: 11, color: "#5C6180", marginTop: 1 }}>💼 {t.occupation === "job" ? "Works at" : t.occupation === "college" ? "Studies at" : "At"}: {t.occupationPlace}{t.occupationId ? ` (ID: ${t.occupationId})` : ""}</div>}
+                {isManager && t.reasonToStay && <div style={{ fontSize: 11, color: "#7F85A6", marginTop: 1, fontStyle: "italic" }}>"{t.reasonToStay}"</div>}
                 {isManager && t.rentAmount && <div style={{ fontSize: 12, fontWeight: 700, color: "#2F6B44", marginTop: 2 }}>💰 ₹{Number(t.rentAmount).toLocaleString("en-IN")}/month</div>}
                 {isManager && t.depositAmount && (
-                  <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2, color: t.depositReturnedOn ? "#6B6459" : t.depositPaidOn ? "#2B4B43" : "#8C6215" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2, color: t.depositReturnedOn ? "#5C6180" : t.depositPaidOn ? "#3A41A0" : "#8C6215" }}>
                     🔒 ₹{Number(t.depositAmount).toLocaleString("en-IN")} deposit — {t.depositReturnedOn ? "Returned" : t.depositPaidOn ? "Held" : "Pending"}
                   </div>
                 )}
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
-                {t.phone && <div style={{ fontSize: 12, color: "#6B6459" }}>{t.phone}</div>}
+                {t.phone && <div style={{ fontSize: 12, color: "#5C6180" }}>{t.phone}</div>}
                 <ContactButtons phone={t.phone} />
-                <div style={{ fontSize: 11, color: "#2B4B43", fontWeight: 600 }}>View room →</div>
+                <div style={{ fontSize: 11, color: "#3A41A0", fontWeight: 600 }}>View room →</div>
               </div>
             </div>
           ))}
@@ -1874,15 +1910,15 @@ function PaymentModeSelector({ mode, setMode, otherText, setOtherText }) {
         {["Cash", "UPI", "Bank Transfer", "Other"].map(m => (
           <button key={m} onClick={() => setMode(m)} style={{
             padding: "9px 4px", borderRadius: 9, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
-            border: mode === m ? "2px solid #3C8F5C" : "1.5px solid #DCD5C6",
+            border: mode === m ? "2px solid #3C8F5C" : "1.5px solid #DFE2F0",
             background: mode === m ? "#EBF3EC" : "#fff",
-            color: mode === m ? "#2F6B44" : "#6B6459",
+            color: mode === m ? "#2F6B44" : "#5C6180",
           }}>{m}</button>
         ))}
       </div>
       {mode === "Other" && (
         <input value={otherText} onChange={e => setOtherText(e.target.value)} placeholder="Optional — describe payment mode"
-          style={{ width: "100%", marginTop: 8, padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DCD5C6", fontSize: 13, boxSizing: "border-box" }} />
+          style={{ width: "100%", marginTop: 8, padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DFE2F0", fontSize: 13, boxSizing: "border-box" }} />
       )}
     </div>
   );
@@ -1914,38 +1950,38 @@ function TenantHistoryPanel({ paymentsLog, loading, search, setSearch }) {
 
   return (
     <div style={{ background: "#fff", borderRadius: 14, padding: 16, marginBottom: 14, boxShadow: "0 1px 4px #0001" }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6459", marginBottom: 8 }}>SEARCH A TENANT'S PAYMENT HISTORY</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#5C6180", marginBottom: 8 }}>SEARCH A TENANT'S PAYMENT HISTORY</div>
       <input
         value={search}
         onChange={e => setSearch(e.target.value)}
         placeholder="Type tenant name…"
-        style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1.5px solid #DCD5C6", fontSize: 14, boxSizing: "border-box", marginBottom: 14 }}
+        style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1.5px solid #DFE2F0", fontSize: 14, boxSizing: "border-box", marginBottom: 14 }}
       />
-      {loading && <div style={{ textAlign: "center", color: "#9C9585", padding: 20 }}>Loading payment history…</div>}
+      {loading && <div style={{ textAlign: "center", color: "#7F85A6", padding: 20 }}>Loading payment history…</div>}
       {!loading && term.length === 0 && (
-        <div style={{ textAlign: "center", color: "#9C9585", padding: 10, fontSize: 13 }}>Start typing a name to see every rent payment they've ever made.</div>
+        <div style={{ textAlign: "center", color: "#7F85A6", padding: 10, fontSize: 13 }}>Start typing a name to see every rent payment they've ever made.</div>
       )}
       {!loading && term.length > 0 && sorted.length === 0 && (
-        <div style={{ textAlign: "center", color: "#9C9585", padding: 10, fontSize: 13 }}>No payments found matching "{search}".</div>
+        <div style={{ textAlign: "center", color: "#7F85A6", padding: 10, fontSize: 13 }}>No payments found matching "{search}".</div>
       )}
       {!loading && sorted.length > 0 && (
         <>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, padding: "8px 10px", background: "#F6F3EA", borderRadius: 8 }}>
-            <div style={{ fontSize: 12, color: "#6B6459", fontWeight: 700 }}>{sorted.length} payment{sorted.length !== 1 ? "s" : ""} found</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, padding: "8px 10px", background: "#F5F6FC", borderRadius: 8 }}>
+            <div style={{ fontSize: 12, color: "#5C6180", fontWeight: 700 }}>{sorted.length} payment{sorted.length !== 1 ? "s" : ""} found</div>
             <div style={{ fontSize: 14, fontWeight: 800, color: "#2F6B44" }}>₹{total.toLocaleString("en-IN")} total</div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {sorted.map(p => (
-              <div key={p.id || p.receipt_no} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#F6F3EA", borderRadius: 8, padding: "8px 10px" }}>
+              <div key={p.id || p.receipt_no} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#F5F6FC", borderRadius: 8, padding: "8px 10px" }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1D3833" }}>{p.tenant_name}</div>
-                  <div style={{ fontSize: 11, color: "#9C9585" }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1F2350" }}>{p.tenant_name}</div>
+                  <div style={{ fontSize: 11, color: "#7F85A6" }}>
                     {FLOOR_LABELS[p.floor] || "Floor " + p.floor} · Room {p.room_number} · {fmtDateIST(new Date(p.paid_at), { day: "numeric", month: "short", year: "numeric" })} · {p.payment_mode || "mode not set"}
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#2F6B44" }}>₹{Number(p.amount || 0).toLocaleString("en-IN")}</div>
-                  <button onClick={() => reprint(p)} style={{ padding: "5px 10px", borderRadius: 7, border: "1.5px solid #A9C4B8", background: "#E7EFEA", color: "#2B4B43", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>🧾 Reprint</button>
+                  <button onClick={() => reprint(p)} style={{ padding: "5px 10px", borderRadius: 7, border: "1.5px solid #B9BEEA", background: "#E9EBFA", color: "#3A41A0", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>🧾 Reprint</button>
                 </div>
               </div>
             ))}
@@ -1961,10 +1997,10 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
   const [expandedMonth, setExpandedMonth] = useState(null);
 
   if (loading) {
-    return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#9C9585", marginBottom: 14 }}>Loading payment history…</div>;
+    return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#7F85A6", marginBottom: 14 }}>Loading payment history…</div>;
   }
   if (!paymentsLog || paymentsLog.length === 0) {
-    return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#9C9585", marginBottom: 14 }}>No payments recorded yet. Once you start marking rent as paid, monthly and yearly totals will show up here — including for tenants who later check out.</div>;
+    return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#7F85A6", marginBottom: 14 }}>No payments recorded yet. Once you start marking rent as paid, monthly and yearly totals will show up here — including for tenants who later check out.</div>;
   }
 
   const years = Array.from(new Set(paymentsLog.map(p => new Date(p.paid_at).getFullYear()))).sort((a, b) => b - a);
@@ -2025,12 +2061,12 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
     <div style={{ background: "#fff", borderRadius: 14, padding: 16, marginBottom: 14, boxShadow: "0 1px 4px #0001" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
         <div>
-          <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>TOTAL COLLECTED IN {reportYear}</div>
-          <div style={{ fontSize: 28, fontWeight: 600, color: "#1D3833", fontFamily: FONT_DISPLAY }}>₹{yearTotal.toLocaleString("en-IN")}</div>
+          <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>TOTAL COLLECTED IN {reportYear}</div>
+          <div style={{ fontSize: 28, fontWeight: 600, color: "#1F2350", fontFamily: FONT_DISPLAY }}>₹{yearTotal.toLocaleString("en-IN")}</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={exportYearCSV} style={{ padding: "8px 14px", borderRadius: 8, border: "1.5px solid #A8CDB0", background: "#EBF3EC", color: "#2F6B44", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>⬇️ Export CSV</button>
-          <select value={reportYear} onChange={e => { setReportYear(Number(e.target.value)); setExpandedMonth(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1.5px solid #DCD5C6", fontWeight: 700, fontSize: 14 }}>
+          <select value={reportYear} onChange={e => { setReportYear(Number(e.target.value)); setExpandedMonth(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1.5px solid #DFE2F0", fontWeight: 700, fontSize: 14 }}>
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
@@ -2039,28 +2075,28 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
         {monthly.map(m => (
           <div key={m.name}>
             <div onClick={() => m.count > 0 && setExpandedMonth(x => x === m.monthIndex ? null : m.monthIndex)}
-              style={{ display: "flex", alignItems: "center", gap: 10, cursor: m.count > 0 ? "pointer" : "default", padding: "4px 6px", borderRadius: 8, background: expandedMonth === m.monthIndex ? "#F6F3EA" : "transparent" }}>
-              <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#6B6459" }}>{m.name}</div>
-              <div style={{ flex: 1, background: "#F2EEE4", borderRadius: 6, height: 20, position: "relative", overflow: "hidden" }}>
-                <div style={{ width: `${(m.total / maxMonth) * 100}%`, background: m.total > 0 ? "linear-gradient(90deg, #2B4B4399, #2B4B43)" : "transparent", height: "100%", borderRadius: 6, transition: "width 0.3s", boxShadow: m.total > 0 ? "0 0 5px #2B4B4344" : "none" }} />
+              style={{ display: "flex", alignItems: "center", gap: 10, cursor: m.count > 0 ? "pointer" : "default", padding: "4px 6px", borderRadius: 8, background: expandedMonth === m.monthIndex ? "#F5F6FC" : "transparent" }}>
+              <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#5C6180" }}>{m.name}</div>
+              <div style={{ flex: 1, background: "#EEF0F9", borderRadius: 6, height: 20, position: "relative", overflow: "hidden" }}>
+                <div style={{ width: `${(m.total / maxMonth) * 100}%`, background: m.total > 0 ? "linear-gradient(90deg, #3A41A099, #3A41A0)" : "transparent", height: "100%", borderRadius: 6, transition: "width 0.3s", boxShadow: m.total > 0 ? "0 0 5px #3A41A044" : "none" }} />
               </div>
-              <div style={{ width: 90, textAlign: "right", fontSize: 12.5, fontWeight: 700, color: "#1D3833" }}>₹{m.total.toLocaleString("en-IN")}</div>
-              <div style={{ width: 22, textAlign: "right", fontSize: 10.5, color: "#9C9585" }}>{m.count}</div>
-              <div style={{ width: 14, textAlign: "center", fontSize: 10, color: "#9C9585" }}>{m.count > 0 ? (expandedMonth === m.monthIndex ? "▲" : "▼") : ""}</div>
+              <div style={{ width: 90, textAlign: "right", fontSize: 12.5, fontWeight: 700, color: "#1F2350" }}>₹{m.total.toLocaleString("en-IN")}</div>
+              <div style={{ width: 22, textAlign: "right", fontSize: 10.5, color: "#7F85A6" }}>{m.count}</div>
+              <div style={{ width: 14, textAlign: "center", fontSize: 10, color: "#7F85A6" }}>{m.count > 0 ? (expandedMonth === m.monthIndex ? "▲" : "▼") : ""}</div>
             </div>
             {expandedMonth === m.monthIndex && (
-              <div style={{ margin: "6px 4px 10px", background: "#F6F3EA", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ margin: "6px 4px 10px", background: "#F5F6FC", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                 {m.rows.map(p => (
                   <div key={p.id || p.receipt_no} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 8, padding: "8px 10px", boxShadow: "0 1px 2px #0001" }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1D3833" }}>{p.tenant_name}</div>
-                      <div style={{ fontSize: 11, color: "#9C9585" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1F2350" }}>{p.tenant_name}</div>
+                      <div style={{ fontSize: 11, color: "#7F85A6" }}>
                         {FLOOR_LABELS[p.floor] || "Floor " + p.floor} · Room {p.room_number} · {fmtDateIST(new Date(p.paid_at), { day: "numeric", month: "short" })} · {p.payment_mode || "mode not set"}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 800, color: "#2F6B44" }}>₹{Number(p.amount || 0).toLocaleString("en-IN")}</div>
-                      <button onClick={() => reprint(p)} style={{ padding: "5px 10px", borderRadius: 7, border: "1.5px solid #A9C4B8", background: "#E7EFEA", color: "#2B4B43", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>🧾 Reprint</button>
+                      <button onClick={() => reprint(p)} style={{ padding: "5px 10px", borderRadius: 7, border: "1.5px solid #B9BEEA", background: "#E9EBFA", color: "#3A41A0", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>🧾 Reprint</button>
                     </div>
                   </div>
                 ))}
@@ -2076,7 +2112,7 @@ function RentReportsPanel({ paymentsLog, loading, reportYear, setReportYear }) {
 // ── RENT DUE PAGE ─────────────────────────────────────────────
 // Shared receipt PDF generator — used both for a freshly-marked-paid tenant
 // and for reprinting any past payment from the permanent ledger in Reports.
-function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amount, mode, receiptNo, cycleNote, note = "", docTitle = "Rent Receipt", amountLabel = "AMOUNT PAID", fileTag = "", periodBadge = null }) {
+function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amount, mode, receiptNo, cycleNote, note = "", docTitle = "Rent Receipt", amountLabel = "AMOUNT PAID", fileTag = "", periodBadge = null, paidTill = null }) {
   const { jsPDF } = window.jspdf || {};
   if (!jsPDF) { alert("PDF library still loading — try again in a moment."); return; }
 
@@ -2087,11 +2123,11 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
   // stone tone (money going back out — deliberately quieter than the other two).
   const isReturn = /return/i.test(docTitle);
   const isDeposit = /deposit/i.test(docTitle) && !isReturn;
-  const accent = isReturn ? [107, 100, 89] : isDeposit ? [184, 98, 46] : [43, 75, 67];
-  const accentTint = isReturn ? [243, 240, 234] : isDeposit ? [253, 241, 231] : [231, 239, 234];
-  const inkSoft = [107, 100, 89];
-  const inkStrong = [29, 56, 51];
-  const hairline = [220, 213, 198];
+  const accent = isReturn ? [92, 97, 128] : isDeposit ? [191, 116, 8] : [58, 65, 160];
+  const accentTint = isReturn ? [240, 241, 247] : isDeposit ? [253, 241, 231] : [233, 235, 250];
+  const inkSoft = [92, 97, 128];
+  const inkStrong = [31, 35, 80];
+  const hairline = [223, 226, 240];
 
   // ── Precompute row content BEFORE creating the doc, so the page height can
   // fit the content exactly — no awkward dead space, no clipped notes. ──
@@ -2104,6 +2140,7 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
     ["Mode", mode || "-"],
     ["Cycle", cycleNote || "-"],
   ];
+  if (paidTill) rows.push(["Paid till", paidTill]);
   if (note && note.trim()) rows.push(["Notes", note.trim()]);
 
   // Measure with a scratch doc (jsPDF needs an instance to measure text,
@@ -2125,17 +2162,17 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
 
   // ── HEADER — pine letterhead, hostel name, doc type/receipt no. in ochre,
   // address block underneath so the receipt self-identifies even loose or forwarded. ──
-  doc.setFillColor(29, 56, 51);
+  doc.setFillColor(31, 35, 80);
   doc.rect(0, 0, PAGE_W, HEADER_H, "F");
 
-  doc.setFont("helvetica", "bold"); doc.setFontSize(19); doc.setTextColor(241, 239, 233);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(19); doc.setTextColor(238, 240, 250);
   doc.text("Turiya Girls Hostel", MARGIN, 30);
 
   // thin ochre rule under the name, a small brand detail
-  doc.setDrawColor(184, 98, 46); doc.setLineWidth(1.4);
+  doc.setDrawColor(191, 116, 8); doc.setLineWidth(1.4);
   doc.line(MARGIN, 38, MARGIN + 64, 38);
 
-  doc.setFont("helvetica", "bold"); doc.setTextColor(216, 143, 88);
+  doc.setFont("helvetica", "bold"); doc.setTextColor(240, 176, 64);
   // Auto-shrink the receipt-number line to fit the page width instead of
   // assuming 8.5pt always fits. Room numbering, floor count, or the receipt
   // format itself can all grow over time (e.g. rooms getting longer labels,
@@ -2161,12 +2198,12 @@ function generateReceiptPDF({ name, phone, floorLabel, roomNumber, paidDate, amo
     doc.text(`RENT FOR: ${periodBadge.toUpperCase()}`, MARGIN, 65);
   }
 
-  doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(191, 201, 195);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(190, 194, 230);
   const addrLines = doc.splitTextToSize(HOSTEL_ADDRESS, CONTENT_W);
   doc.text(addrLines, MARGIN, addrStartY);
   const afterAddrY = addrStartY + (addrLines.length - 1) * 8.5;
 
-  doc.setFontSize(7); doc.setTextColor(216, 143, 88);
+  doc.setFontSize(7); doc.setTextColor(240, 176, 64);
   doc.text(`Ph: ${HOSTEL_PHONE}   |   ${HOSTEL_LANDMARK}`, MARGIN, afterAddrY + 12);
 
   // ── BODY ROWS — label/value pairs with a soft hairline under each ──
@@ -2269,9 +2306,9 @@ function RentPage({ rooms, setRooms, today }) {
   const [historySearch, setHistorySearch] = useState("");
 
   useEffect(() => {
-    if ((showReports || showHistorySearch || filter === "paid") && paymentsLog === null) {
+    if (paymentsLog === null) {
       setLoadingReports(true);
-      loadPayments().then(rows => { setPaymentsLog(rows); setLoadingReports(false); });
+      loadPayments().then(rows => { setPaymentsLog(rows); setLoadingReports(false); }).catch(() => setLoadingReports(false));
     }
   }, [showReports, showHistorySearch, filter]);
 
@@ -2344,6 +2381,7 @@ function RentPage({ rooms, setRooms, today }) {
         prev_rent_paid_on: t.rentPaidOn || null,
       });
     } catch (e) { console.warn("Payment log failed (table may not exist yet):", e); }
+    loadPayments().then(setPaymentsLog).catch(() => {});
     return { nowIso, receiptNo, finalMode };
   }
   // Advance an already-PAID tenant's paid-through date by one more cycle —
@@ -2424,6 +2462,7 @@ function RentPage({ rooms, setRooms, today }) {
         prev_rent_paid_on: t.rentPaidOn || null,
       });
     } catch (e) { console.warn("Payment log failed (table may not exist yet):", e); }
+    loadPayments().then(setPaymentsLog).catch(() => {});
     return { nowIso, nextPaidOnIso, receiptNo, finalMode };
   }
   // Inverse of the forward step in addCycle(): given a due-day-aligned
@@ -2509,6 +2548,7 @@ function RentPage({ rooms, setRooms, today }) {
     // one — never wipe the whole stack back to "not paid at all". This
     // makes "Undo Paid" behave identically to the per-cycle Undo button:
     // always exactly one step back.
+    if (paymentsLog === null) { alert("Payment records are not loaded yet. Check your connection, reopen this page, then try Undo again."); return; }
     const cycles = tenantCycleChain(t);
     if (cycles.length > 0) {
       await undoCycleEntry(t, cycles[cycles.length - 1].entry);
@@ -2676,6 +2716,7 @@ function RentPage({ rooms, setRooms, today }) {
       mode: t.rentPaymentMode,
       receiptNo,
       periodBadge,
+      paidTill: periodBounds ? fmtDateIST(periodBounds.periodEnd, { day: "numeric", month: "long", year: "numeric" }) : null,
       cycleNote: isDaily
         ? `Per Day · ${fmtDateIST(paidDate, { day: "numeric", month: "short", year: "numeric" })}`
         : periodLabel
@@ -2766,14 +2807,63 @@ function RentPage({ rooms, setRooms, today }) {
     }
     return { ...t, daysToNext, countdownLabel };
   }).sort((a, b) => a.daysToNext - b.daysToNext);
-  const countdownShown = searchQuery.trim()
-    ? countdownAll.filter(t =>
-        t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (t.phone || "").includes(searchQuery) ||
-        String(t.roomNumber).includes(searchQuery) ||
-        String(t.floor).includes(searchQuery)
-      )
-    : countdownAll;
+  const countdownShown = countdownAll.filter(t => tenantMatches(t, searchQuery));
+
+  // ── Default Rent Due view: one list grouped by urgency ──
+  const rentList = visibleCyclic.filter(t => tenantMatches(t, searchQuery));
+  const unpaid = type => rentList.filter(t => !t.isPaid && t.rentStatus.type === type);
+  const paidNow = rentList.filter(t => t.isPaid);
+  const toCollect = [...unpaid("overdue"), ...unpaid("due_today")].reduce((sum, t) => sum + (Number(t.rentAmount) || 0), 0);
+  const money = n => `₹${Number(n).toLocaleString("en-IN")}`;
+  const openPaid = t => { setPaymentMode("Cash"); setPaymentModeOther(""); setPaymentNote(""); setPaidModal(t); };
+  const linkBtn = { background: "none", border: "none", padding: "8px 0 0", fontSize: 13, fontWeight: 600, color: "#3A41A0", cursor: "pointer" };
+
+  function renderRentRow(t, i) {
+    const rs = t.rentStatus, busy = busyKey === tKey(t);
+    const urgent = rs.type === "overdue" || rs.type === "due_today";
+    const paidTill = t.isPaid ? cyclePeriodBounds(t, t.rentPaidOn) : null;
+    const status = t.isPaid
+      ? (paidTill ? `Paid till ${fmtDateIST(paidTill.periodEnd, { day: "numeric", month: "short" })}` : "Paid")
+      : rs.label;
+    return (
+      <div key={tKey(t)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderTop: i ? "1px solid #DFE2F0" : "none" }}>
+        <TenantAvatar path={t.profilePicPath} style={{ width: 46, height: 46, borderRadius: "50%", background: "#E9EBFA", color: "#3A41A0", fontWeight: 800, fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          {t.name.charAt(0).toUpperCase()}
+        </TenantAvatar>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</div>
+          <div style={{ fontSize: 12, color: "#5C6180" }}>Room {t.roomNumber} · Bed {t.bed}</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: t.isPaid ? "#2F6B44" : urgent ? "#A83D2A" : "#5C6180" }}>{status}</div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          {t.rentAmount ? <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>{money(t.rentAmount)}</div> : null}
+          {t.isPaid ? (
+            <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", flexWrap: "wrap" }}>
+              <button disabled={busy} onClick={() => printReceipt(t)} style={linkBtn}>Receipt</button>
+              <button disabled={busy} onClick={() => { setPaymentMode(t.rentPaymentMode || "Cash"); setPaymentModeOther(""); setPaymentNote(""); setAddCycleModal(t); }} style={linkBtn}>Add cycle</button>
+              <button disabled={busy} onClick={() => setUndoPaidConfirm(t)} style={{ ...linkBtn, color: "#A83D2A" }}>Undo</button>
+            </div>
+          ) : (
+            <>
+              <button disabled={busy} onClick={() => openPaid(t)} style={{ marginTop: 4, padding: "10px 16px", borderRadius: 99, border: "none", background: urgent ? "#A83D2A" : "#3A41A0", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Mark paid</button>
+              <div><button disabled={busy} onClick={() => { setSnoozeDays(7); setSnoozeModal(t); }} style={linkBtn}>Snooze</button></div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+  function rentSection(title, list, color) {
+    if (list.length === 0) return null;
+    return (
+      <div key={title} style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "0 4px 8px", fontWeight: 700, fontSize: 14, color }}>
+          <span>{title}</span><span style={{ color: "#7F85A6", fontWeight: 600 }}>{list.length}</span>
+        </div>
+        <div style={{ background: "#fff", border: "1px solid #DFE2F0", borderRadius: 16, overflow: "hidden" }}>{list.map(renderRentRow)}</div>
+      </div>
+    );
+  }
 
   let shown = [];
   // "All" no longer appends paidList separately — every paid tenant already
@@ -2788,15 +2878,7 @@ function RentPage({ rooms, setRooms, today }) {
   else if (filter === "paid") shown = paidList;
   else if (filter === "snoozed") shown = snoozedList;
 
-  if (searchQuery.trim()) {
-    const q = searchQuery.toLowerCase();
-    shown = shown.filter(t =>
-      t.name.toLowerCase().includes(q) ||
-      (t.phone || "").includes(searchQuery) ||
-      String(t.roomNumber).includes(searchQuery) ||
-      String(t.floor).includes(searchQuery)
-    );
-  }
+  shown = shown.filter(t => tenantMatches(t, searchQuery));
 
   // Group by a stable key — monthly tenants group by day-of-month (they
   // recur on the same date every month), 15-day tenants group by their
@@ -2836,15 +2918,15 @@ function RentPage({ rooms, setRooms, today }) {
       <div style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 600, margin: "0 0 3px", fontFamily: FONT_DISPLAY }}>💰 Rent Due</h1>
-          <p style={{ margin: 0, color: "#6B6459", fontSize: 13 }}>
+          <p style={{ margin: 0, color: "#5C6180", fontSize: 13 }}>
             {fmtDateIST(new Date(), { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setShowHistorySearch(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showHistorySearch ? "#1D3833" : "#DCD5C6"), background: showHistorySearch ? "#1D3833" : "#fff", color: showHistorySearch ? "#fff" : "#57524A", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+          <button onClick={() => setShowHistorySearch(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showHistorySearch ? "#1F2350" : "#DFE2F0"), background: showHistorySearch ? "#1F2350" : "#fff", color: showHistorySearch ? "#fff" : "#454A6B", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
             🔍 History
           </button>
-          <button onClick={() => setShowReports(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showReports ? "#1D3833" : "#DCD5C6"), background: showReports ? "#1D3833" : "#fff", color: showReports ? "#fff" : "#57524A", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+          <button onClick={() => setShowReports(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showReports ? "#1F2350" : "#DFE2F0"), background: showReports ? "#1F2350" : "#fff", color: showReports ? "#fff" : "#454A6B", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
             📊 Reports
           </button>
         </div>
@@ -2865,14 +2947,14 @@ function RentPage({ rooms, setRooms, today }) {
           { label: "Due Today", value: dueToday.length, color: "#C1543C", bg: "#FBEEEA", icon: "🔴", id: "due_today" },
           { label: "Due Soon", value: dueSoon.length, color: "#C1861F", bg: "#FBF3E1", icon: "🟡", id: "due_soon" },
           { label: "Upcoming", value: ok.length, color: "#3C8F5C", bg: "#EBF3EC", icon: "🟢", id: "ok" },
-          { label: "Paid ✅", value: paidList.length, color: "#2B4B43", bg: "#E7EFEA", icon: "✅", id: "paid" },
+          { label: "Paid ✅", value: paidList.length, color: "#3A41A0", bg: "#E9EBFA", icon: "✅", id: "paid" },
           { label: "Snoozed", value: snoozedList.length, color: "#6B4E86", bg: "#F1ECF5", icon: "⏭️", id: "snoozed" },
         ].map(c => (
           <div key={c.id} onClick={() => setFilter(filter === c.id ? "all" : c.id)}
             style={{ background: filter === c.id ? c.color : c.bg, borderRadius: 12, padding: "12px 10px", cursor: "pointer", border: `2px solid ${filter === c.id ? c.color : c.color + "44"}`, transition: "all 0.15s", textAlign: "center" }}>
             <div style={{ fontSize: 18, marginBottom: 2 }}>{c.icon}</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: filter === c.id ? "#fff" : c.color }}>{c.value}</div>
-            <div style={{ fontSize: 10, color: filter === c.id ? "#ffffff99" : "#6B6459", fontWeight: 600 }}>{c.label}</div>
+            <div style={{ fontSize: 10, color: filter === c.id ? "#ffffff99" : "#5C6180", fontWeight: 600 }}>{c.label}</div>
           </div>
         ))}
       </div>
@@ -2880,24 +2962,24 @@ function RentPage({ rooms, setRooms, today }) {
       {/* Money bar */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
         <div style={{ background: "#FBEEEA", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #DDA79A" }}>
-          <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>TO COLLECT</div>
+          <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>TO COLLECT</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#C1543C" }}>₹{totalToCollect.toLocaleString("en-IN")}</div>
-          <div style={{ fontSize: 11, color: "#9C9585" }}>{[...overdue,...dueToday,...dueSoon].filter(t=>!t.isPaid && t.rentAmount).length} tenants</div>
+          <div style={{ fontSize: 11, color: "#7F85A6" }}>{[...overdue,...dueToday,...dueSoon].filter(t=>!t.isPaid && t.rentAmount).length} tenants</div>
         </div>
         <div style={{ background: "#EBF3EC", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #A8CDB0" }}>
-          <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>COLLECTED (this cycle)</div>
+          <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>COLLECTED (this cycle)</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#2F6B44" }}>₹{totalCollected.toLocaleString("en-IN")}</div>
-          <div style={{ fontSize: 11, color: "#9C9585" }}>{paidList.filter(t=>t.rentAmount).length} tenants</div>
+          <div style={{ fontSize: 11, color: "#7F85A6" }}>{paidList.filter(t=>t.rentAmount).length} tenants</div>
         </div>
       </div>
 
       {/* This calendar month's collections — resets automatically on the 1st, no manual reset needed */}
-      <div style={{ background: "#E7EFEA", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #A9C4B8", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ background: "#E9EBFA", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #B9BEEA", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>COLLECTED IN {fmtDateIST(new Date(), { month: "long" }).toUpperCase()}</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#2B4B43" }}>₹{collectedThisMonth.toLocaleString("en-IN")}</div>
+          <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>COLLECTED IN {fmtDateIST(new Date(), { month: "long" }).toUpperCase()}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#3A41A0" }}>₹{collectedThisMonth.toLocaleString("en-IN")}</div>
         </div>
-        <div style={{ fontSize: 11, color: "#9C9585", textAlign: "right" }}>{paidThisCalendarMonth.length} payment{paidThisCalendarMonth.length !== 1 ? "s" : ""} since 1st<br/>auto-resets next month</div>
+        <div style={{ fontSize: 11, color: "#7F85A6", textAlign: "right" }}>{paidThisCalendarMonth.length} payment{paidThisCalendarMonth.length !== 1 ? "s" : ""} since 1st<br/>auto-resets next month</div>
       </div>
 
       {/* No date warning */}
@@ -2928,20 +3010,20 @@ function RentPage({ rooms, setRooms, today }) {
               const key = tKey(t);
               const isBusy = busyKey === key;
               return (
-                <div key={i} style={{ background: isPaidToday ? "#EBF3EC" : "#fff", border: `1.5px solid ${isCheckedOut ? "#DCD5C6" : isPaidToday ? "#A8CDB0" : "#E3B45C"}`, borderLeft: `4px solid ${isCheckedOut ? "#9C9585" : isPaidToday ? "#3C8F5C" : "#C1861F"}`, borderRadius: 12, padding: "12px 14px", opacity: isCheckedOut ? 0.6 : 1 }}>
+                <div key={i} style={{ background: isPaidToday ? "#EBF3EC" : "#fff", border: `1.5px solid ${isCheckedOut ? "#DFE2F0" : isPaidToday ? "#A8CDB0" : "#E3B45C"}`, borderLeft: `4px solid ${isCheckedOut ? "#7F85A6" : isPaidToday ? "#3C8F5C" : "#C1861F"}`, borderRadius: 12, padding: "12px 14px", opacity: isCheckedOut ? 0.6 : 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ width: 38, height: 38, borderRadius: "50%", background: isPaidToday ? "#E4EFE6" : "#FBF3E1", border: `2px solid ${isPaidToday ? "#A8CDB0" : "#E3B45C"}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14, color: isPaidToday ? "#2F6B44" : "#A8701A", flexShrink: 0 }}>
+                    <TenantAvatar path={t.profilePicPath} style={{ width: 38, height: 38, borderRadius: "50%", background: isPaidToday ? "#E4EFE6" : "#FBF3E1", border: `2px solid ${isPaidToday ? "#A8CDB0" : "#E3B45C"}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14, color: isPaidToday ? "#2F6B44" : "#A8701A", flexShrink: 0 }}>
                       {isPaidToday ? "✅" : t.name.charAt(0).toUpperCase()}
-                    </div>
+                    </TenantAvatar>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>{t.name}</div>
-                      <div style={{ fontSize: 11, color: "#6B6459" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
-                      <div style={{ fontSize: 11, color: "#9C9585" }}>{inn ? fmt(t.admissionDate) : "No check-in"}{out ? ` → ${fmt(t.checkoutDate)}` : ""}{days !== null ? ` · ${days} days` : ""}</div>
+                      <div style={{ fontSize: 11, color: "#5C6180" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
+                      <div style={{ fontSize: 11, color: "#7F85A6" }}>{inn ? fmt(t.admissionDate) : "No check-in"}{out ? ` → ${fmt(t.checkoutDate)}` : ""}{days !== null ? ` · ${days} days` : ""}</div>
                       {t.rentAmount && <div style={{ fontSize: 12, fontWeight: 700, color: "#2F6B44", marginTop: 2 }}>₹{Number(t.rentAmount).toLocaleString("en-IN")}/day</div>}
-                      {isPaidToday && t.rentPaidOn && <div style={{ fontSize: 11, color: "#9C9585", marginTop: 2 }}>Paid: {fmtDateIST(new Date(t.rentPaidOn))}</div>}
+                      {isPaidToday && t.rentPaidOn && <div style={{ fontSize: 11, color: "#7F85A6", marginTop: 2 }}>Paid: {fmtDateIST(new Date(t.rentPaidOn))}</div>}
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
-                      <span style={{ background: isCheckedOut ? "#F2EEE4" : isPaidToday ? "#E4EFE6" : "#FBF3E1", color: isCheckedOut ? "#9C9585" : isPaidToday ? "#2F6B44" : "#A8701A", fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99 }}>{isCheckedOut ? "✅ Out" : isPaidToday ? "✅ Paid Today" : out ? "⏳ Staying" : "☀️"}</span>
+                      <span style={{ background: isCheckedOut ? "#EEF0F9" : isPaidToday ? "#E4EFE6" : "#FBF3E1", color: isCheckedOut ? "#7F85A6" : isPaidToday ? "#2F6B44" : "#A8701A", fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99 }}>{isCheckedOut ? "✅ Out" : isPaidToday ? "✅ Paid Today" : out ? "⏳ Staying" : "☀️"}</span>
                       <ContactButtons phone={t.phone} size="small" />
                     </div>
                   </div>
@@ -2954,13 +3036,13 @@ function RentPage({ rooms, setRooms, today }) {
                       )}
                       {isPaidToday && (
                         <>
-                          <button onClick={() => printReceipt(t)} style={{ padding: "6px 12px", borderRadius: 10, border: "1.5px solid #A9C4B8", background: "#E7EFEA", color: "#2B4B43", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                          <button onClick={() => printReceipt(t)} style={{ padding: "6px 12px", borderRadius: 10, border: "1.5px solid #B9BEEA", background: "#E9EBFA", color: "#3A41A0", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                             🧾 Receipt
                           </button>
-                          <button title="Fix payment mode or note before printing" onClick={() => { setReceiptMode(t.rentPaymentMode || "Cash"); setReceiptModeOther(""); setReceiptNoteEdit(t.rentNote || ""); setReceiptModal(t); }} style={{ padding: "6px 9px", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                          <button title="Fix payment mode or note before printing" onClick={() => { setReceiptMode(t.rentPaymentMode || "Cash"); setReceiptModeOther(""); setReceiptNoteEdit(t.rentNote || ""); setReceiptModal(t); }} style={{ padding: "6px 9px", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                             ✏️
                           </button>
-                          <button disabled={isBusy} onClick={() => setUndoPaidConfirm(t)} style={{ padding: "6px 12px", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                          <button disabled={isBusy} onClick={() => setUndoPaidConfirm(t)} style={{ padding: "6px 12px", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
                             Undo
                           </button>
                         </>
@@ -2971,7 +3053,7 @@ function RentPage({ rooms, setRooms, today }) {
               );
             })}
           </div>
-          <div style={{ height: 1, background: "#DCD5C6", margin: "14px 0" }} />
+          <div style={{ height: 1, background: "#DFE2F0", margin: "14px 0" }} />
         </div>
       )}
 
@@ -2982,10 +3064,10 @@ function RentPage({ rooms, setRooms, today }) {
           placeholder="Search by name, phone, room, floor…"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
-          style={{ width: "100%", padding: "10px 12px 10px 36px", borderRadius: 10, border: "1.5px solid #DCD5C6", fontSize: 14, boxSizing: "border-box" }}
+          style={{ width: "100%", padding: "10px 12px 10px 36px", borderRadius: 10, border: "1.5px solid #DFE2F0", fontSize: 14, boxSizing: "border-box" }}
         />
         {searchQuery && (
-          <button onClick={() => setSearchQuery("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "#DCD5C6", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", fontSize: 11 }}>✕</button>
+          <button onClick={() => setSearchQuery("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "#DFE2F0", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", fontSize: 11 }}>✕</button>
         )}
       </div>
 
@@ -3002,13 +3084,13 @@ function RentPage({ rooms, setRooms, today }) {
         ].map(f => (
           <button key={f.id} onClick={() => setFilter(f.id)} style={{
             padding: "6px 12px", borderRadius: 8,
-            border: "1.5px solid " + (filter === f.id ? "#1D3833" : "#DCD5C6"),
-            background: filter === f.id ? "#1D3833" : "#fff",
-            color: filter === f.id ? "#fff" : "#6B6459",
+            border: "1.5px solid " + (filter === f.id ? "#1F2350" : "#DFE2F0"),
+            background: filter === f.id ? "#1F2350" : "#fff",
+            color: filter === f.id ? "#fff" : "#5C6180",
             fontWeight: 600, fontSize: 12, cursor: "pointer",
           }}>{f.label}</button>
         ))}
-        <span style={{ marginLeft: "auto", fontSize: 12, color: "#9C9585" }}>{filter === "countdown" ? countdownShown.length : shown.length} tenants</span>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "#7F85A6" }}>{filter === "countdown" ? countdownShown.length : shown.length} tenants</span>
       </div>
 
       {/* Countdown view — one flat list, everyone with a due date, sorted
@@ -3017,7 +3099,7 @@ function RentPage({ rooms, setRooms, today }) {
           below entirely. */}
       {filter === "countdown" ? (
         countdownShown.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "40px 0", color: "#9C9585" }}>
+          <div style={{ textAlign: "center", padding: "40px 0", color: "#7F85A6" }}>
             <div style={{ fontSize: 36, marginBottom: 8 }}>📆</div>
             <div style={{ fontWeight: 600 }}>No cyclic tenants to show</div>
           </div>
@@ -3034,31 +3116,52 @@ function RentPage({ rooms, setRooms, today }) {
                 : `on the ${ordinal(t.rentStatus.dueDay)}`;
               return (
                 <div key={idx} style={{ display: "flex", alignItems: "center", gap: 12, background: "#fff", border: `1.5px solid ${color}44`, borderLeft: `4px solid ${color}`, borderRadius: 12, padding: "12px 14px" }}>
-                  <div style={{ width: 38, height: 38, borderRadius: "50%", background: bg, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 15, color, flexShrink: 0 }}>
+                  <TenantAvatar path={t.profilePicPath} style={{ width: 38, height: 38, borderRadius: "50%", background: bg, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 15, color, flexShrink: 0 }}>
                     {t.name.charAt(0).toUpperCase()}
-                  </div>
+                  </TenantAvatar>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}>
                       {t.name}
                       {t.isPaid && <span style={{ fontSize: 11 }}>✅</span>}
                       {t.isSnoozed && <span style={{ fontSize: 11 }}>⏰</span>}
                     </div>
-                    <div style={{ fontSize: 11, color: "#9C9585" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
+                    <div style={{ fontSize: 11, color: "#7F85A6" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0 }}>
                     <div style={{ fontWeight: 800, fontSize: 14, color }}>{t.countdownLabel}</div>
-                    <div style={{ fontSize: 10, color: "#9C9585" }}>{dueDateText}</div>
+                    <div style={{ fontSize: 10, color: "#7F85A6" }}>{dueDateText}</div>
                   </div>
                 </div>
               );
             })}
           </div>
         )
+      ) : filter === "all" ? (
+        rentList.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "40px 0", color: "#7F85A6", fontWeight: 600 }}>No tenants found</div>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "4px 4px 16px" }}>
+              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 26, color: toCollect > 0 ? "#A83D2A" : "#2F6B44" }}>{money(toCollect)}</span>
+              <span style={{ fontSize: 13, color: "#5C6180" }}>{toCollect > 0 ? `to collect · ${unpaid("overdue").length} overdue` : "nothing overdue"}</span>
+            </div>
+            {rentSection("Overdue", unpaid("overdue"), "#A83D2A")}
+            {rentSection("Due today", unpaid("due_today"), "#A83D2A")}
+            {rentSection("This week", unpaid("due_soon"), "#A9720F")}
+            {rentSection("Later", unpaid("ok"), "#5C6180")}
+            {paidNow.length > 0 && (
+              <details>
+                <summary style={{ cursor: "pointer", padding: "0 4px 8px", fontWeight: 700, fontSize: 14, color: "#2F6B44" }}>Paid ({paidNow.length})</summary>
+                <div style={{ background: "#fff", border: "1px solid #DFE2F0", borderRadius: 16, overflow: "hidden" }}>{paidNow.map(renderRentRow)}</div>
+              </details>
+            )}
+          </>
+        )
       ) : (
       <>
       {/* Tenant list */}
       {shown.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "40px 0", color: "#9C9585" }}>
+        <div style={{ textAlign: "center", padding: "40px 0", color: "#7F85A6" }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>{filter === "paid" ? "✅" : filter === "snoozed" ? "⏭️" : "🎉"}</div>
           <div style={{ fontWeight: 600 }}>{filter === "paid" ? "No payments marked yet" : filter === "snoozed" ? "Nothing snoozed" : "No tenants here"}</div>
         </div>
@@ -3075,11 +3178,11 @@ function RentPage({ rooms, setRooms, today }) {
           return (
           <div key={key} style={{ marginBottom: 20 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: "#1D3833" }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "#1F2350" }}>
                 {headerLabel}
               </div>
-              <div style={{ height: 1, flex: 1, background: "#DCD5C6" }} />
-              <span style={{ fontSize: 12, color: "#9C9585" }}>{group.length}</span>
+              <div style={{ height: 1, flex: 1, background: "#DFE2F0" }} />
+              <span style={{ fontSize: 12, color: "#7F85A6" }}>{group.length}</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {group.map((t, idx) => {
@@ -3094,9 +3197,9 @@ function RentPage({ rooms, setRooms, today }) {
                   <div key={idx} style={{ background: bgColor, border: `1.5px solid ${borderColor}44`, borderLeft: `4px solid ${borderColor}`, borderRadius: 14, padding: "14px 16px" }}>
                     {/* Name row with rent amount badge */}
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
-                      <div style={{ width: 44, height: 44, borderRadius: "50%", background: isPaid ? "#E4EFE6" : isSnoozed ? "#EDE3F1" : rs.bg, border: `2px solid ${borderColor}66`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 17, color: borderColor, flexShrink: 0 }}>
+                      <TenantAvatar path={t.profilePicPath} style={{ width: 44, height: 44, borderRadius: "50%", background: isPaid ? "#E4EFE6" : isSnoozed ? "#EDE3F1" : rs.bg, border: `2px solid ${borderColor}66`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 17, color: borderColor, flexShrink: 0 }}>
                         {isPaid ? "✅" : isSnoozed ? "⏭️" : t.name.charAt(0).toUpperCase()}
-                      </div>
+                      </TenantAvatar>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 2 }}>
                           <span style={{ fontWeight: 800, fontSize: 16 }}>{t.name}</span>
@@ -3107,10 +3210,10 @@ function RentPage({ rooms, setRooms, today }) {
                             </span>
                           )}
                         </div>
-                        <div style={{ fontSize: 12, color: "#6B6459" }}>
+                        <div style={{ fontSize: 12, color: "#5C6180" }}>
                           Floor {t.floor} · Room {t.roomNumber}{t.roomLabel ? ` (${t.roomLabel})` : ""} · Bed {t.bed}
                         </div>
-                        <div style={{ fontSize: 11, color: "#9C9585", marginTop: 2 }}>
+                        <div style={{ fontSize: 11, color: "#7F85A6", marginTop: 2 }}>
                           Joined: {fmt(t.admissionDate)}
                           {isPaid && t.rentPaidOn && ` · Paid: ${fmtDateIST(new Date(t.rentPaidOn))}`}
                           {isPaid && t.rentStatus && ` · Next due in ${t.rentStatus.daysUntil} day${t.rentStatus.daysUntil !== 1 ? "s" : ""} (${t.is15 ? fmtDateIST(t.rentStatus.nextDue, { day: "numeric", month: "short" }) : ordinal(t.rentStatus.dueDay)})`}
@@ -3138,7 +3241,7 @@ function RentPage({ rooms, setRooms, today }) {
                             every card (paid, unpaid, snoozed) — so you don't
                             need to switch to the dedicated Countdown tab
                             just to see how many days are left. */}
-                        <span style={{ fontSize: 10.5, fontWeight: 700, color: "#6B6459", whiteSpace: "nowrap" }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: "#5C6180", whiteSpace: "nowrap" }}>
                           📆 {countdownInfo(rs).label}
                         </span>
                       </div>
@@ -3161,7 +3264,7 @@ function RentPage({ rooms, setRooms, today }) {
                           so you can top up an advance payment without
                           having to switch to the Paid filter first. */}
                       {isPaid && (
-                        <button disabled={isBusy} onClick={() => { setPaymentMode(t.rentPaymentMode || "Cash"); setPaymentModeOther(""); setPaymentNote(""); setAddCycleModal(t); }} style={{ padding: "7px 14px", borderRadius: 10, border: "none", background: "#2B4B43", color: "#fff", fontWeight: 800, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                        <button disabled={isBusy} onClick={() => { setPaymentMode(t.rentPaymentMode || "Cash"); setPaymentModeOther(""); setPaymentNote(""); setAddCycleModal(t); }} style={{ padding: "7px 14px", borderRadius: 10, border: "none", background: "#3A41A0", color: "#fff", fontWeight: 800, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
                           ➕ Add Cycle
                         </button>
                       )}
@@ -3169,13 +3272,13 @@ function RentPage({ rooms, setRooms, today }) {
                           kept out of "All" so that tab stays focused on who still owes rent. */}
                       {isPaid && filter === "paid" && (
                         <>
-                          <button onClick={() => printReceipt(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #A9C4B8", background: "#E7EFEA", color: "#2B4B43", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                          <button onClick={() => printReceipt(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #B9BEEA", background: "#E9EBFA", color: "#3A41A0", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                             🧾 Receipt
                           </button>
-                          <button title="Fix payment mode or note before printing" onClick={() => { setReceiptMode(t.rentPaymentMode || "Cash"); setReceiptModeOther(""); setReceiptNoteEdit(t.rentNote || ""); setReceiptModal(t); }} style={{ padding: "7px 10px", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                          <button title="Fix payment mode or note before printing" onClick={() => { setReceiptMode(t.rentPaymentMode || "Cash"); setReceiptModeOther(""); setReceiptNoteEdit(t.rentNote || ""); setReceiptModal(t); }} style={{ padding: "7px 10px", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                             ✏️
                           </button>
-                          <button disabled={isBusy} onClick={() => setUndoPaidConfirm(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                          <button disabled={isBusy} onClick={() => setUndoPaidConfirm(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
                             Undo Paid
                           </button>
                         </>
@@ -3185,7 +3288,7 @@ function RentPage({ rooms, setRooms, today }) {
                           <button disabled={isBusy} onClick={() => { setPaymentMode("Cash"); setPaymentModeOther(""); setPaymentNote(""); setPaidModal(t); }} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "#3C8F5C", color: "#fff", fontWeight: 800, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
                             ✅ Mark Paid
                           </button>
-                          <button disabled={isBusy} onClick={() => setUnsnoozeConfirm(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                          <button disabled={isBusy} onClick={() => setUnsnoozeConfirm(t)} style={{ padding: "7px 14px", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
                             Unsnooze
                           </button>
                         </>
@@ -3212,21 +3315,21 @@ function RentPage({ rooms, setRooms, today }) {
                         return { ...c, boundaryAfter, monthLabel };
                       });
                       return (
-                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #DCD5C6" }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #DFE2F0" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 6 }}>
                             Cycles added ({labeled.length})
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                             {labeled.map((c, i) => (
-                              <div key={c.entry.receipt_no || i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#F6F3EA", borderRadius: 8, padding: "6px 10px" }}>
-                                <div style={{ fontSize: 12, color: "#3A362E" }}>
+                              <div key={c.entry.receipt_no || i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#F5F6FC", borderRadius: 8, padding: "6px 10px" }}>
+                                <div style={{ fontSize: 12, color: "#2B2F52" }}>
                                   <b>{c.monthLabel}</b> · paid {fmtDateIST(new Date(c.entry.paid_at), { day: "numeric", month: "short" })} · ₹{c.entry.amount} · {c.entry.payment_mode}
                                 </div>
                                 <div style={{ display: "flex", gap: 6 }}>
                                   <button onClick={() => printReceipt(
                                     { ...t, rentPaymentMode: c.entry.payment_mode, rentReceiptNo: c.entry.receipt_no, rentNote: c.entry.note || "" },
                                     { paidAtIso: c.entry.paid_at, cycleRefIso: c.boundaryAfter }
-                                  )} style={{ padding: "4px 10px", borderRadius: 8, border: "1.5px solid #A9C4B8", background: "#E7EFEA", color: "#2B4B43", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
+                                  )} style={{ padding: "4px 10px", borderRadius: 8, border: "1.5px solid #B9BEEA", background: "#E9EBFA", color: "#3A41A0", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
                                     🧾
                                   </button>
                                   <button disabled={isBusy} onClick={() => setUndoCycleConfirm({
@@ -3235,7 +3338,7 @@ function RentPage({ rooms, setRooms, today }) {
                                     monthLabel: c.monthLabel,
                                     restoreDate: c.entry.prev_rent_paid_on,
                                     laterLabels: labeled.slice(i + 1).map(x => x.monthLabel),
-                                  })} style={{ padding: "4px 10px", borderRadius: 8, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 11, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                                  })} style={{ padding: "4px 10px", borderRadius: 8, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 11, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
                                     Undo
                                   </button>
                                 </div>
@@ -3261,14 +3364,14 @@ function RentPage({ rooms, setRooms, today }) {
         <div onClick={() => setPaidModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
-              <div style={{ width: 40, height: 4, borderRadius: 99, background: "#DCD5C6" }} />
+              <div style={{ width: 40, height: 4, borderRadius: 99, background: "#DFE2F0" }} />
             </div>
             <div style={{ textAlign: "center", marginBottom: 24 }}>
               <div style={{ fontSize: 52, marginBottom: 10 }}>💰</div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833" }}>Confirm Payment Received</div>
-              <div style={{ fontSize: 14, color: "#6B6459", marginTop: 8 }}>Did you receive rent from</div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833", marginTop: 4 }}>{paidModal.name}?</div>
-              <div style={{ fontSize: 13, color: "#6B6459", marginTop: 2 }}>Floor {paidModal.floor} · Room {paidModal.roomNumber} · Bed {paidModal.bed}</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1F2350" }}>Confirm Payment Received</div>
+              <div style={{ fontSize: 14, color: "#5C6180", marginTop: 8 }}>Did you receive rent from</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1F2350", marginTop: 4 }}>{paidModal.name}?</div>
+              <div style={{ fontSize: 13, color: "#5C6180", marginTop: 2 }}>Floor {paidModal.floor} · Room {paidModal.roomNumber} · Bed {paidModal.bed}</div>
               {paidModal.rentAmount && (
                 <div style={{ marginTop: 14, display: "inline-block", background: "#EBF3EC", color: "#2F6B44", fontWeight: 600, fontSize: 30, padding: "10px 28px", borderRadius: 14, border: "2.5px solid #A8CDB0", fontFamily: FONT_DISPLAY }}>
                   ₹{Number(paidModal.rentAmount).toLocaleString("en-IN")}
@@ -3276,20 +3379,20 @@ function RentPage({ rooms, setRooms, today }) {
               )}
             </div>
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#57524A", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#454A6B", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
               <PaymentModeSelector mode={paymentMode} setMode={setPaymentMode} otherText={paymentModeOther} setOtherText={setPaymentModeOther} />
             </div>
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#57524A", marginBottom: 6 }}>Notes (optional — will print on the receipt)</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#454A6B", marginBottom: 6 }}>Notes (optional — will print on the receipt)</div>
               <input
                 value={paymentNote}
                 onChange={e => setPaymentNote(e.target.value)}
                 placeholder="e.g. partial adjustment, late fee waived…"
-                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DCD5C6", fontSize: 13, boxSizing: "border-box" }}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DFE2F0", fontSize: 13, boxSizing: "border-box" }}
               />
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setPaidModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+              <button onClick={() => setPaidModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
                 Cancel
               </button>
               <button onClick={async () => {
@@ -3321,12 +3424,12 @@ function RentPage({ rooms, setRooms, today }) {
         <div onClick={() => setAddCycleModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
-              <div style={{ width: 40, height: 4, borderRadius: 99, background: "#DCD5C6" }} />
+              <div style={{ width: 40, height: 4, borderRadius: 99, background: "#DFE2F0" }} />
             </div>
             <div style={{ textAlign: "center", marginBottom: 24 }}>
               <div style={{ fontSize: 52, marginBottom: 10 }}>➕</div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833" }}>Add Another Cycle</div>
-              <div style={{ fontSize: 14, color: "#6B6459", marginTop: 8 }}>Did {addCycleModal.name} also pay for another {addCycleModal.billingType === "15day" ? "15-day period" : "month"}?</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1F2350" }}>Add Another Cycle</div>
+              <div style={{ fontSize: 14, color: "#5C6180", marginTop: 8 }}>Did {addCycleModal.name} also pay for another {addCycleModal.billingType === "15day" ? "15-day period" : "month"}?</div>
               {addCycleModal.rentPaidOn && (() => {
                 const paidRef = addCycleModal.rentPaidOn || (addCycleModal.admissionDate + "T00:00:00");
                 const currentBoundary = nextDueBoundaryForTenant(addCycleModal, paidRef);
@@ -3343,31 +3446,31 @@ function RentPage({ rooms, setRooms, today }) {
                         📅 You're adding: {monthLabel}
                       </div>
                     )}
-                    <div style={{ fontSize: 12, color: "#9C9585", marginTop: 8 }}>Paid-through will move to {fmtDateIST(currentBoundary, { day: "numeric", month: "short", year: "numeric" })}</div>
+                    <div style={{ fontSize: 12, color: "#7F85A6", marginTop: 8 }}>Paid-through will move to {fmtDateIST(currentBoundary, { day: "numeric", month: "short", year: "numeric" })}</div>
                   </>
                 );
               })()}
               {addCycleModal.rentAmount && (
-                <div style={{ marginTop: 14, display: "inline-block", background: "#E7EFEA", color: "#2B4B43", fontWeight: 600, fontSize: 30, padding: "10px 28px", borderRadius: 14, border: "2.5px solid #A9C4B8", fontFamily: FONT_DISPLAY }}>
+                <div style={{ marginTop: 14, display: "inline-block", background: "#E9EBFA", color: "#3A41A0", fontWeight: 600, fontSize: 30, padding: "10px 28px", borderRadius: 14, border: "2.5px solid #B9BEEA", fontFamily: FONT_DISPLAY }}>
                   ₹{Number(addCycleModal.rentAmount).toLocaleString("en-IN")}
                 </div>
               )}
             </div>
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#57524A", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#454A6B", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
               <PaymentModeSelector mode={paymentMode} setMode={setPaymentMode} otherText={paymentModeOther} setOtherText={setPaymentModeOther} />
             </div>
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#57524A", marginBottom: 6 }}>Notes (optional — will print on the receipt)</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#454A6B", marginBottom: 6 }}>Notes (optional — will print on the receipt)</div>
               <input
                 value={paymentNote}
                 onChange={e => setPaymentNote(e.target.value)}
                 placeholder="e.g. paid 3 months in advance…"
-                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DCD5C6", fontSize: 13, boxSizing: "border-box" }}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DFE2F0", fontSize: 13, boxSizing: "border-box" }}
               />
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setAddCycleModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+              <button onClick={() => setAddCycleModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
                 Cancel
               </button>
               <button onClick={async () => {
@@ -3382,7 +3485,7 @@ function RentPage({ rooms, setRooms, today }) {
                     { paidAtIso: result.nowIso, cycleRefIso: result.nextPaidOnIso }
                   );
                 }
-              }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#2B4B43", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+              }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#3A41A0", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
                 ➕ Yes, Add This Cycle
               </button>
             </div>
@@ -3396,38 +3499,38 @@ function RentPage({ rooms, setRooms, today }) {
         <div onClick={() => setReceiptModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
-              <div style={{ width: 40, height: 4, borderRadius: 99, background: "#DCD5C6" }} />
+              <div style={{ width: 40, height: 4, borderRadius: 99, background: "#DFE2F0" }} />
             </div>
             <div style={{ textAlign: "center", marginBottom: 24 }}>
               <div style={{ fontSize: 52, marginBottom: 10 }}>🧾</div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833" }}>Generate Receipt</div>
-              <div style={{ fontSize: 14, color: "#6B6459", marginTop: 8 }}>For</div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833", marginTop: 4 }}>{receiptModal.name}</div>
-              <div style={{ fontSize: 13, color: "#6B6459", marginTop: 2 }}>Floor {receiptModal.floor} · Room {receiptModal.roomNumber} · Bed {receiptModal.bed}</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1F2350" }}>Generate Receipt</div>
+              <div style={{ fontSize: 14, color: "#5C6180", marginTop: 8 }}>For</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1F2350", marginTop: 4 }}>{receiptModal.name}</div>
+              <div style={{ fontSize: 13, color: "#5C6180", marginTop: 2 }}>Floor {receiptModal.floor} · Room {receiptModal.roomNumber} · Bed {receiptModal.bed}</div>
               {receiptModal.rentAmount && (
-                <div style={{ marginTop: 14, display: "inline-block", background: "#E7EFEA", color: "#2B4B43", fontWeight: 600, fontSize: 30, padding: "10px 28px", borderRadius: 14, border: "2.5px solid #A9C4B8", fontFamily: FONT_DISPLAY }}>
+                <div style={{ marginTop: 14, display: "inline-block", background: "#E9EBFA", color: "#3A41A0", fontWeight: 600, fontSize: 30, padding: "10px 28px", borderRadius: 14, border: "2.5px solid #B9BEEA", fontFamily: FONT_DISPLAY }}>
                   ₹{Number(receiptModal.rentAmount).toLocaleString("en-IN")}
                 </div>
               )}
             </div>
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#57524A", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#454A6B", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
               <PaymentModeSelector mode={receiptMode} setMode={setReceiptMode} otherText={receiptModeOther} setOtherText={setReceiptModeOther} />
             </div>
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#57524A", marginBottom: 6 }}>Notes (optional — printed on the receipt)</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#454A6B", marginBottom: 6 }}>Notes (optional — printed on the receipt)</div>
               <input
                 value={receiptNoteEdit}
                 onChange={e => setReceiptNoteEdit(e.target.value)}
                 placeholder="e.g. partial adjustment, late fee waived…"
-                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DCD5C6", fontSize: 13, boxSizing: "border-box" }}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DFE2F0", fontSize: 13, boxSizing: "border-box" }}
               />
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setReceiptModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+              <button onClick={() => setReceiptModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
                 Cancel
               </button>
-              <button onClick={() => confirmReceiptAndPrint(receiptModal, receiptMode, receiptNoteEdit.trim())} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#2B4B43", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+              <button onClick={() => confirmReceiptAndPrint(receiptModal, receiptMode, receiptNoteEdit.trim())} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#3A41A0", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
                 🧾 Print / Save PDF
               </button>
             </div>
@@ -3439,28 +3542,28 @@ function RentPage({ rooms, setRooms, today }) {
       {snoozeModal && (
         <div onClick={() => setSnoozeModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#DCD5C6" }} /></div>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#DFE2F0" }} /></div>
             <div style={{ textAlign: "center", marginBottom: 20 }}>
               <div style={{ fontSize: 52, marginBottom: 10 }}>⏰</div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833" }}>Snooze Rent Reminder</div>
-              <div style={{ fontSize: 14, color: "#6B6459", marginTop: 8 }}>For</div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833", marginTop: 4 }}>{snoozeModal.name}</div>
-              <div style={{ fontSize: 13, color: "#6B6459", marginTop: 2 }}>Floor {snoozeModal.floor} · Room {snoozeModal.roomNumber} · Bed {snoozeModal.bed}</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1F2350" }}>Snooze Rent Reminder</div>
+              <div style={{ fontSize: 14, color: "#5C6180", marginTop: 8 }}>For</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1F2350", marginTop: 4 }}>{snoozeModal.name}</div>
+              <div style={{ fontSize: 13, color: "#5C6180", marginTop: 2 }}>Floor {snoozeModal.floor} · Room {snoozeModal.roomNumber} · Bed {snoozeModal.bed}</div>
             </div>
             <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#57524A", marginBottom: 8, textAlign: "center" }}>Hide from Rent Due for how many days?</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#454A6B", marginBottom: 8, textAlign: "center" }}>Hide from Rent Due for how many days?</div>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
                 <input type="range" min={1} max={90} value={snoozeDays} onChange={e => setSnoozeDays(Number(e.target.value))} style={{ flex: 1 }} />
                 <input type="number" min={1} max={90} value={snoozeDays} onChange={e => setSnoozeDays(Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
-                  style={{ width: 60, padding: "8px 6px", borderRadius: 8, border: "1.5px solid #DCD5C6", fontSize: 14, textAlign: "center" }} />
+                  style={{ width: 60, padding: "8px 6px", borderRadius: 8, border: "1.5px solid #DFE2F0", fontSize: 14, textAlign: "center" }} />
               </div>
               <div style={{ display: "flex", gap: 6, justifyContent: "center", marginBottom: 8 }}>
                 {[1, 3, 7, 14, 30, 90].map(d => (
                   <button key={d} onClick={() => setSnoozeDays(d)} style={{
                     padding: "5px 10px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
-                    border: snoozeDays === d ? "2px solid #6B4E86" : "1.5px solid #DCD5C6",
+                    border: snoozeDays === d ? "2px solid #6B4E86" : "1.5px solid #DFE2F0",
                     background: snoozeDays === d ? "#F1ECF5" : "#fff",
-                    color: snoozeDays === d ? "#6B4E86" : "#6B6459",
+                    color: snoozeDays === d ? "#6B4E86" : "#5C6180",
                   }}>{d === 90 ? "3mo" : d + "d"}</button>
                 ))}
               </div>
@@ -3468,11 +3571,11 @@ function RentPage({ rooms, setRooms, today }) {
                 Hidden until {fmtDateIST(new Date(Date.now() + snoozeDays * 24*60*60*1000), { day: "numeric", month: "short", year: "numeric" })} — but reappears sooner automatically if their next rent cycle begins first
               </div>
             </div>
-            <div style={{ fontSize: 11.5, color: "#9C9585", textAlign: "center", marginBottom: 4 }}>
+            <div style={{ fontSize: 11.5, color: "#7F85A6", textAlign: "center", marginBottom: 4 }}>
               This only snoozes the payment currently due — a new cycle starting during this period will show up as a fresh reminder.
             </div>
             <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-              <button onClick={() => setSnoozeModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setSnoozeModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
               <button onClick={async () => {
                 const t = snoozeModal;
                 const days = snoozeDays;
@@ -3492,11 +3595,11 @@ function RentPage({ rooms, setRooms, today }) {
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 340 }}>
             <div style={{ fontSize: 40, textAlign: "center", marginBottom: 8 }}>⏰</div>
             <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>Remove snooze?</div>
-            <div style={{ fontSize: 13, color: "#6B6459", textAlign: "center", marginBottom: 18 }}>
+            <div style={{ fontSize: 13, color: "#5C6180", textAlign: "center", marginBottom: 18 }}>
               <b>{unsnoozeConfirm.name}</b> will immediately show up as due again in the Rent Due list, instead of staying hidden until {fmtDateIST(new Date(unsnoozeConfirm.rentSnoozedUntil), { day: "numeric", month: "short" })}.
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setUnsnoozeConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setUnsnoozeConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
               <button onClick={async () => { const t = unsnoozeConfirm; setUnsnoozeConfirm(null); await unsnoozeTenant(t); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#6B4E86", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
                 Yes, Unsnooze
               </button>
@@ -3527,17 +3630,17 @@ function RentPage({ rooms, setRooms, today }) {
             <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>
               {migrationMissing ? "Repair and undo?" : hasCycles ? "Undo the most recent cycle?" : "Undo this payment?"}
             </div>
-            <div style={{ fontSize: 13, color: "#6B6459", textAlign: "center", marginBottom: 18 }}>
+            <div style={{ fontSize: 13, color: "#5C6180", textAlign: "center", marginBottom: 18 }}>
               {migrationMissing ? (
                 <>This tenant has <b>{tenantRows.length} payments</b> on record that aren't tagged yet. Clicking below will first auto-repair those old rows, then undo only the most recent cycle — the rest stay as they are. If the repair fails, nothing will be changed and you'll see exactly why.</>
               ) : hasCycles ? (
-                <>This removes only the <b>last</b> cycle added for <b>{undoPaidConfirm.name}</b>{restoreDate ? <> — their paid-through date rolls back to <b>{fmtDateIST(new Date(restoreDate), { day: "numeric", month: "short", year: "numeric" })}</b></> : ""}. The {cycles.length - 1} cycle{cycles.length - 1 !== 1 ? "s" : ""} before it stay exactly as they are.</>
+                <>This removes only the <b>last</b> cycle added for <b>{undoPaidConfirm.name}</b>{restoreDate ? <> — their paid-through date rolls back to <b>{fmtDateIST(new Date(restoreDate), { day: "numeric", month: "short", year: "numeric" })}</b></> : ""}. {cycles.length > 1 ? `The ${cycles.length - 1} earlier cycle${cycles.length > 2 ? "s" : ""} stay exactly as they are.` : "Their original payment stays as it is."}</>
               ) : (
                 <><b>{undoPaidConfirm.name}</b> will show up as due again, and their "Paid" status for this cycle will be removed. This does not delete their permanent payment record in Reports.</>
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setUndoPaidConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setUndoPaidConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
               <button onClick={async () => { const t = undoPaidConfirm; setUndoPaidConfirm(null); await undoPaid(t); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#A83D2A", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
                 {migrationMissing ? "Repair & Undo" : "Yes, Undo"}
               </button>
@@ -3555,14 +3658,14 @@ function RentPage({ rooms, setRooms, today }) {
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 340 }}>
             <div style={{ fontSize: 40, textAlign: "center", marginBottom: 8 }}>⚠️</div>
             <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>Undo {undoCycleConfirm.monthLabel}?</div>
-            <div style={{ fontSize: 13, color: "#6B6459", textAlign: "center", marginBottom: 18 }}>
+            <div style={{ fontSize: 13, color: "#5C6180", textAlign: "center", marginBottom: 18 }}>
               <b>{undoCycleConfirm.t.name}</b>'s paid-through date rolls back to <b>{undoCycleConfirm.restoreDate ? fmtDateIST(new Date(undoCycleConfirm.restoreDate), { day: "numeric", month: "short", year: "numeric" }) : "before this cycle"}</b>.
               {undoCycleConfirm.laterLabels.length > 0 && (
                 <> This also removes <b>{undoCycleConfirm.laterLabels.join(", ")}</b>, since {undoCycleConfirm.laterLabels.length > 1 ? "they were" : "it was"} added after {undoCycleConfirm.monthLabel}.</>
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setUndoCycleConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setUndoCycleConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
               <button onClick={async () => { const { t, entry } = undoCycleConfirm; setUndoCycleConfirm(null); await undoCycleEntry(t, entry); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#A83D2A", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
                 Yes, Undo
               </button>
@@ -3583,10 +3686,10 @@ function DepositReportsPanel({ depositsLog, loading }) {
   const [expandedMonth, setExpandedMonth] = useState(null);
 
   if (loading) {
-    return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#9C9585", marginBottom: 14 }}>Loading deposit history…</div>;
+    return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#7F85A6", marginBottom: 14 }}>Loading deposit history…</div>;
   }
   if (!depositsLog || depositsLog.length === 0) {
-    return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#9C9585", marginBottom: 14 }}>No deposits recorded yet.</div>;
+    return <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#7F85A6", marginBottom: 14 }}>No deposits recorded yet.</div>;
   }
 
   const years = Array.from(new Set(depositsLog.map(d => new Date(d.collected_at).getFullYear()))).sort((a, b) => b - a);
@@ -3662,57 +3765,57 @@ function DepositReportsPanel({ depositsLog, loading }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
         <div style={{ display: "flex", gap: 20 }}>
           <div>
-            <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>COLLECTED IN {reportYear}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: "#2B4B43" }}>₹{yearCollected.toLocaleString("en-IN")}</div>
+            <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>COLLECTED IN {reportYear}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#3A41A0" }}>₹{yearCollected.toLocaleString("en-IN")}</div>
           </div>
           <div>
-            <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>RETURNED IN {reportYear}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: "#57524A" }}>₹{yearReturned.toLocaleString("en-IN")}</div>
+            <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>RETURNED IN {reportYear}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#454A6B" }}>₹{yearReturned.toLocaleString("en-IN")}</div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={exportCSV} style={{ padding: "8px 14px", borderRadius: 8, border: "1.5px solid #A8CDB0", background: "#EBF3EC", color: "#2F6B44", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>⬇️ Export CSV</button>
-          <select value={reportYear} onChange={e => setReportYear(Number(e.target.value))} style={{ padding: "8px 12px", borderRadius: 8, border: "1.5px solid #DCD5C6", fontWeight: 700, fontSize: 14 }}>
+          <select value={reportYear} onChange={e => setReportYear(Number(e.target.value))} style={{ padding: "8px 12px", borderRadius: 8, border: "1.5px solid #DFE2F0", fontWeight: 700, fontSize: 14 }}>
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 14, fontSize: 11, color: "#9C9585", marginBottom: 8 }}>
-        <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#2B4B43", marginRight: 4 }} />Collected</span>
-        <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#9C9585", marginRight: 4 }} />Returned</span>
+      <div style={{ display: "flex", gap: 14, fontSize: 11, color: "#7F85A6", marginBottom: 8 }}>
+        <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#3A41A0", marginRight: 4 }} />Collected</span>
+        <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#7F85A6", marginRight: 4 }} />Returned</span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {monthly.map(m => (
           <div key={m.name}>
             <div onClick={() => m.transactions.length > 0 && setExpandedMonth(x => x === m.monthIndex ? null : m.monthIndex)}
-              style={{ display: "flex", alignItems: "center", gap: 10, cursor: m.transactions.length > 0 ? "pointer" : "default", padding: "4px 6px", borderRadius: 8, background: expandedMonth === m.monthIndex ? "#F6F3EA" : "transparent" }}>
-              <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#6B6459" }}>{m.name}</div>
+              style={{ display: "flex", alignItems: "center", gap: 10, cursor: m.transactions.length > 0 ? "pointer" : "default", padding: "4px 6px", borderRadius: 8, background: expandedMonth === m.monthIndex ? "#F5F6FC" : "transparent" }}>
+              <div style={{ width: 32, fontSize: 12, fontWeight: 700, color: "#5C6180" }}>{m.name}</div>
               <div style={{ flex: 1 }}>
-                <div style={{ background: "#E7EFEA", borderRadius: 4, height: 9, marginBottom: 2, overflow: "hidden" }}>
-                  <div style={{ width: `${(m.collectedTotal / maxVal) * 100}%`, background: "linear-gradient(90deg, #2B4B4399, #2B4B43)", height: "100%" }} />
+                <div style={{ background: "#E9EBFA", borderRadius: 4, height: 9, marginBottom: 2, overflow: "hidden" }}>
+                  <div style={{ width: `${(m.collectedTotal / maxVal) * 100}%`, background: "linear-gradient(90deg, #3A41A099, #3A41A0)", height: "100%" }} />
                 </div>
-                <div style={{ background: "#F2EEE4", borderRadius: 4, height: 9, overflow: "hidden" }}>
-                  <div style={{ width: `${(m.returnedTotal / maxVal) * 100}%`, background: "linear-gradient(90deg, #9C958599, #9C9585)", height: "100%" }} />
+                <div style={{ background: "#EEF0F9", borderRadius: 4, height: 9, overflow: "hidden" }}>
+                  <div style={{ width: `${(m.returnedTotal / maxVal) * 100}%`, background: "linear-gradient(90deg, #7F85A699, #7F85A6)", height: "100%" }} />
                 </div>
               </div>
-              <div style={{ width: 85, textAlign: "right", fontSize: 11.5, fontWeight: 700, color: "#1D3833" }}>₹{m.collectedTotal.toLocaleString("en-IN")}</div>
-              <div style={{ width: 14, textAlign: "center", fontSize: 10, color: "#9C9585" }}>{m.transactions.length > 0 ? (expandedMonth === m.monthIndex ? "▲" : "▼") : ""}</div>
+              <div style={{ width: 85, textAlign: "right", fontSize: 11.5, fontWeight: 700, color: "#1F2350" }}>₹{m.collectedTotal.toLocaleString("en-IN")}</div>
+              <div style={{ width: 14, textAlign: "center", fontSize: 10, color: "#7F85A6" }}>{m.transactions.length > 0 ? (expandedMonth === m.monthIndex ? "▲" : "▼") : ""}</div>
             </div>
             {expandedMonth === m.monthIndex && (
-              <div style={{ margin: "6px 4px 10px", background: "#F6F3EA", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ margin: "6px 4px 10px", background: "#F5F6FC", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                 {m.transactions.map((tx, idx) => (
                   <div key={tx.id + "-" + tx.txType + "-" + idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 8, padding: "8px 10px", boxShadow: "0 1px 2px #0001" }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1D3833" }}>
-                        {tx.tenant_name} <span style={{ fontSize: 10, fontWeight: 700, color: tx.txType === "collected" ? "#2B4B43" : "#6B6459", background: tx.txType === "collected" ? "#E7EFEA" : "#F2EEE4", padding: "1px 6px", borderRadius: 99, marginLeft: 4 }}>{tx.txType === "collected" ? "Collected" : "Returned"}</span>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1F2350" }}>
+                        {tx.tenant_name} <span style={{ fontSize: 10, fontWeight: 700, color: tx.txType === "collected" ? "#3A41A0" : "#5C6180", background: tx.txType === "collected" ? "#E9EBFA" : "#EEF0F9", padding: "1px 6px", borderRadius: 99, marginLeft: 4 }}>{tx.txType === "collected" ? "Collected" : "Returned"}</span>
                       </div>
-                      <div style={{ fontSize: 11, color: "#9C9585" }}>
+                      <div style={{ fontSize: 11, color: "#7F85A6" }}>
                         {FLOOR_LABELS[tx.floor] || "Floor " + tx.floor} · Room {tx.room_number} · {fmtDateIST(new Date(tx.txDate), { day: "numeric", month: "short" })} · {tx.txType === "collected" ? tx.payment_mode : tx.return_mode}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 800, color: tx.txType === "collected" ? "#2B4B43" : "#57524A" }}>₹{Number(tx.txAmount || 0).toLocaleString("en-IN")}</div>
-                      <button onClick={() => reprintTx(tx)} style={{ padding: "5px 10px", borderRadius: 7, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>🧾</button>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: tx.txType === "collected" ? "#3A41A0" : "#454A6B" }}>₹{Number(tx.txAmount || 0).toLocaleString("en-IN")}</div>
+                      <button onClick={() => reprintTx(tx)} style={{ padding: "5px 10px", borderRadius: 7, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>🧾</button>
                     </div>
                   </div>
                 ))}
@@ -3955,13 +4058,13 @@ function DepositsPage({ rooms, setRooms, today }) {
       <div style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 600, margin: "0 0 3px", fontFamily: FONT_DISPLAY }}>🔒 Security Deposits</h1>
-          <p style={{ margin: 0, color: "#6B6459", fontSize: 13 }}>Separate from rent — tracked and reported independently</p>
+          <p style={{ margin: 0, color: "#5C6180", fontSize: 13 }}>Separate from rent — tracked and reported independently</p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setShowReturnHistory(true)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#57524A", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+          <button onClick={() => setShowReturnHistory(true)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#454A6B", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
             📜 Full History
           </button>
-          <button onClick={() => setShowDepositReports(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showDepositReports ? "#1D3833" : "#DCD5C6"), background: showDepositReports ? "#1D3833" : "#fff", color: showDepositReports ? "#fff" : "#57524A", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+          <button onClick={() => setShowDepositReports(s => !s)} style={{ padding: "9px 14px", borderRadius: 10, border: "1.5px solid " + (showDepositReports ? "#1F2350" : "#DFE2F0"), background: showDepositReports ? "#1F2350" : "#fff", color: showDepositReports ? "#fff" : "#454A6B", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
             📊 Reports
           </button>
         </div>
@@ -3973,19 +4076,19 @@ function DepositsPage({ rooms, setRooms, today }) {
 
       {/* Money bar */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-        <div style={{ background: "#E7EFEA", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #A9C4B8" }}>
-          <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>HELD NOW</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#2B4B43" }}>₹{totalHeld.toLocaleString("en-IN")}</div>
-          <div style={{ fontSize: 11, color: "#9C9585" }}>{held.length} deposit{held.length !== 1 ? "s" : ""}</div>
+        <div style={{ background: "#E9EBFA", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #B9BEEA" }}>
+          <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>HELD NOW</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#3A41A0" }}>₹{totalHeld.toLocaleString("en-IN")}</div>
+          <div style={{ fontSize: 11, color: "#7F85A6" }}>{held.length} deposit{held.length !== 1 ? "s" : ""}</div>
         </div>
-        <div style={{ background: "#F6F3EA", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #DCD5C6" }}>
-          <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>RETURNED (all time)</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#57524A" }}>₹{totalReturned.toLocaleString("en-IN")}</div>
-          <div style={{ fontSize: 11, color: "#9C9585" }}>{returned.length} tenant{returned.length !== 1 ? "s" : ""}</div>
+        <div style={{ background: "#F5F6FC", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #DFE2F0" }}>
+          <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>RETURNED (all time)</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#454A6B" }}>₹{totalReturned.toLocaleString("en-IN")}</div>
+          <div style={{ fontSize: 11, color: "#7F85A6" }}>{returned.length} tenant{returned.length !== 1 ? "s" : ""}</div>
         </div>
       </div>
       <div style={{ background: "#EBF3EC", borderRadius: 12, padding: "10px 16px", border: "1.5px solid #A8CDB0", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 700 }}>EVER COLLECTED (all time)</div>
+        <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 700 }}>EVER COLLECTED (all time)</div>
         <div style={{ fontSize: 16, fontWeight: 800, color: "#2F6B44" }}>₹{totalEverCollected.toLocaleString("en-IN")}</div>
       </div>
 
@@ -3996,10 +4099,10 @@ function DepositsPage({ rooms, setRooms, today }) {
           value={depositSearch}
           onChange={e => setDepositSearch(e.target.value)}
           placeholder="Search by name or phone…"
-          style={{ ...inputStyle, paddingLeft: 40, fontSize: 14, padding: "10px 14px 10px 40px", borderRadius: 10, border: "1.5px solid #DCD5C6", boxSizing: "border-box" }}
+          style={{ ...inputStyle, paddingLeft: 40, fontSize: 14, padding: "10px 14px 10px 40px", borderRadius: 10, border: "1.5px solid #DFE2F0", boxSizing: "border-box" }}
         />
         {depositSearch && (
-          <button onClick={() => setDepositSearch("")} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "#DCD5C6", border: "none", borderRadius: "50%", width: 22, height: 22, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+          <button onClick={() => setDepositSearch("")} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "#DFE2F0", border: "none", borderRadius: "50%", width: 22, height: 22, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
         )}
       </div>
 
@@ -4007,23 +4110,23 @@ function DepositsPage({ rooms, setRooms, today }) {
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         {[
           { id: "pending", label: "Pending Collection", count: pending.length, color: "#8C6215" },
-          { id: "held", label: "Held", count: held.length, color: "#2B4B43" },
-          { id: "returned", label: "Returned", count: returned.length, color: "#6B6459" },
+          { id: "held", label: "Held", count: held.length, color: "#3A41A0" },
+          { id: "returned", label: "Returned", count: returned.length, color: "#5C6180" },
         ].map(f => (
           <button key={f.id} onClick={() => setFilter(f.id)} style={{
             flex: 1, padding: "10px 4px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 700,
-            border: `1.5px solid ${filter === f.id ? f.color : "#DCD5C6"}`,
+            border: `1.5px solid ${filter === f.id ? f.color : "#DFE2F0"}`,
             background: filter === f.id ? f.color : "#fff",
-            color: filter === f.id ? "#fff" : "#6B6459",
+            color: filter === f.id ? "#fff" : "#5C6180",
           }}>{f.label} ({f.count})</button>
         ))}
       </div>
 
-      {loading && <div style={{ textAlign: "center", color: "#9C9585", padding: 30 }}>Loading…</div>}
+      {loading && <div style={{ textAlign: "center", color: "#7F85A6", padding: 30 }}>Loading…</div>}
 
       {!loading && filter === "pending" && (
         pending.length === 0 ? (
-          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#9C9585" }}>{term ? `No pending deposits match "${depositSearch}".` : "No deposits pending collection. Set a deposit amount on a tenant's card in Rooms to see them here."}</div>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#7F85A6" }}>{term ? `No pending deposits match "${depositSearch}".` : "No deposits pending collection. Set a deposit amount on a tenant's card in Rooms to see them here."}</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {pending.map((t, i) => {
@@ -4033,7 +4136,7 @@ function DepositsPage({ rooms, setRooms, today }) {
                 <div key={i} style={{ background: "#fff", border: "1.5px solid #E3B45C", borderLeft: "4px solid #C1861F", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{t.name}</div>
-                    <div style={{ fontSize: 12, color: "#6B6459" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
+                    <div style={{ fontSize: 12, color: "#5C6180" }}>Floor {t.floor} · Room {t.roomNumber} · Bed {t.bed}</div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#8C6215", marginTop: 2 }}>₹{Number(t.depositAmount).toLocaleString("en-IN")}</div>
                   </div>
                   <button disabled={isBusy} onClick={() => { setCollectMode("Cash"); setCollectModeOther(""); setCollectNote(""); setCollectModal(t); }} style={{ padding: "8px 14px", borderRadius: 10, border: "none", background: "#3C8F5C", color: "#fff", fontWeight: 700, fontSize: 13, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1, whiteSpace: "nowrap" }}>
@@ -4048,27 +4151,27 @@ function DepositsPage({ rooms, setRooms, today }) {
 
       {!loading && filter === "held" && (
         held.length === 0 ? (
-          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#9C9585" }}>{term ? `No held deposits match "${depositSearch}".` : "No deposits currently held."}</div>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#7F85A6" }}>{term ? `No held deposits match "${depositSearch}".` : "No deposits currently held."}</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {held.map(row => {
               const isBusy = busyKey === row.id;
               return (
-                <div key={row.id} style={{ background: "#fff", border: "1.5px solid " + (row.tenantHasLeft ? "#DDA79A" : "#A9C4B8"), borderLeft: "4px solid " + (row.tenantHasLeft ? "#A83D2A" : "#2B4B43"), borderRadius: 12, padding: "12px 14px" }}>
+                <div key={row.id} style={{ background: "#fff", border: "1.5px solid " + (row.tenantHasLeft ? "#DDA79A" : "#B9BEEA"), borderLeft: "4px solid " + (row.tenantHasLeft ? "#A83D2A" : "#3A41A0"), borderRadius: 12, padding: "12px 14px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>{row.tenant_name}</div>
-                      <div style={{ fontSize: 12, color: "#6B6459" }}>Floor {row.floor} · Room {row.room_number}</div>
-                      <div style={{ fontSize: 11, color: "#9C9585", marginTop: 2 }}>Collected {fmtDateIST(new Date(row.collected_at), { day: "2-digit", month: "short", year: "numeric" })} · {row.payment_mode}</div>
+                      <div style={{ fontSize: 12, color: "#5C6180" }}>Floor {row.floor} · Room {row.room_number}</div>
+                      <div style={{ fontSize: 11, color: "#7F85A6", marginTop: 2 }}>Collected {fmtDateIST(new Date(row.collected_at), { day: "2-digit", month: "short", year: "numeric" })} · {row.payment_mode}</div>
                       {row.tenantHasLeft && (
                         <div style={{ fontSize: 11, color: "#A83D2A", fontWeight: 700, marginTop: 4 }}>⚠️ Tenant has checked out — deposit still owed</div>
                       )}
                     </div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#2B4B43" }}>₹{Number(row.amount).toLocaleString("en-IN")}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#3A41A0" }}>₹{Number(row.amount).toLocaleString("en-IN")}</div>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={() => reprintCollected(row)} style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1.5px solid #A9C4B8", background: "#E7EFEA", color: "#2B4B43", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Receipt</button>
-                    <button disabled={isBusy} onClick={() => { setReturnAmount(String(row.amount)); setReturnMode("Cash"); setReturnModeOther(""); setReturnNote(""); setReturnModal(row); }} style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>↩️ Mark Returned</button>
+                    <button onClick={() => reprintCollected(row)} style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1.5px solid #B9BEEA", background: "#E9EBFA", color: "#3A41A0", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Receipt</button>
+                    <button disabled={isBusy} onClick={() => { setReturnAmount(String(row.amount)); setReturnMode("Cash"); setReturnModeOther(""); setReturnNote(""); setReturnModal(row); }} style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 12, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>↩️ Mark Returned</button>
                   </div>
                   <button disabled={isBusy} onClick={() => setUndoConfirm({ type: "collect", row })} style={{ width: "100%", marginTop: 8, padding: "7px 0", borderRadius: 10, border: "1.5px solid #DDA79A", background: "#fff", color: "#C1543C", fontWeight: 600, fontSize: 11.5, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>Undo Collect</button>
                 </div>
@@ -4080,23 +4183,23 @@ function DepositsPage({ rooms, setRooms, today }) {
 
       {!loading && filter === "returned" && (
         <>
-        <div style={{ fontSize: 11.5, color: "#9C9585", marginBottom: 10 }}>Showing returns from the last 30 days — search above to find any past return, or use "Full History" at the top</div>
+        <div style={{ fontSize: 11.5, color: "#7F85A6", marginBottom: 10 }}>Showing returns from the last 30 days — search above to find any past return, or use "Full History" at the top</div>
         {returned.length === 0 ? (
-          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#9C9585" }}>{term ? `No returned deposits match "${depositSearch}" in the last 30 days.` : "No deposits returned in the last 30 days. Older returns are still saved — check Full History."}</div>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 30, textAlign: "center", color: "#7F85A6" }}>{term ? `No returned deposits match "${depositSearch}" in the last 30 days.` : "No deposits returned in the last 30 days. Older returns are still saved — check Full History."}</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {returned.map(row => (
-              <div key={row.id} style={{ background: "#fff", border: "1.5px solid #DCD5C6", borderLeft: "4px solid #9C9585", borderRadius: 12, padding: "12px 14px" }}>
+              <div key={row.id} style={{ background: "#fff", border: "1.5px solid #DFE2F0", borderLeft: "4px solid #7F85A6", borderRadius: 12, padding: "12px 14px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{row.tenant_name}</div>
-                    <div style={{ fontSize: 12, color: "#6B6459" }}>Floor {row.floor} · Room {row.room_number}</div>
-                    <div style={{ fontSize: 11, color: "#9C9585", marginTop: 2 }}>Collected ₹{Number(row.amount).toLocaleString("en-IN")} on {fmtDateIST(new Date(row.collected_at), { day: "2-digit", month: "short", year: "numeric" })}</div>
-                    <div style={{ fontSize: 11, color: "#6B6459", marginTop: 2 }}>Returned {fmtDateIST(new Date(row.returned_at), { day: "2-digit", month: "short", year: "numeric" })} · {row.return_mode}{row.return_note ? ` · ${row.return_note}` : ""}</div>
+                    <div style={{ fontSize: 12, color: "#5C6180" }}>Floor {row.floor} · Room {row.room_number}</div>
+                    <div style={{ fontSize: 11, color: "#7F85A6", marginTop: 2 }}>Collected ₹{Number(row.amount).toLocaleString("en-IN")} on {fmtDateIST(new Date(row.collected_at), { day: "2-digit", month: "short", year: "numeric" })}</div>
+                    <div style={{ fontSize: 11, color: "#5C6180", marginTop: 2 }}>Returned {fmtDateIST(new Date(row.returned_at), { day: "2-digit", month: "short", year: "numeric" })} · {row.return_mode}{row.return_note ? ` · ${row.return_note}` : ""}</div>
                   </div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "#57524A" }}>₹{Number(row.return_amount).toLocaleString("en-IN")}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#454A6B" }}>₹{Number(row.return_amount).toLocaleString("en-IN")}</div>
                 </div>
-                <button onClick={() => reprintReturned(row)} style={{ width: "100%", padding: "8px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Return Receipt</button>
+                <button onClick={() => reprintReturned(row)} style={{ width: "100%", padding: "8px 0", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Return Receipt</button>
                 <button disabled={busyKey === row.id} onClick={() => setUndoConfirm({ type: "return", row })} style={{ width: "100%", marginTop: 8, padding: "7px 0", borderRadius: 10, border: "1.5px solid #DDA79A", background: "#fff", color: "#C1543C", fontWeight: 600, fontSize: 11.5, cursor: busyKey === row.id ? "default" : "pointer", opacity: busyKey === row.id ? 0.6 : 1 }}>Undo Return</button>
               </div>
             ))}
@@ -4109,32 +4212,32 @@ function DepositsPage({ rooms, setRooms, today }) {
       {collectModal && (
         <div onClick={() => setCollectModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#DCD5C6" }} /></div>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#DFE2F0" }} /></div>
             <div style={{ textAlign: "center", marginBottom: 24 }}>
               <div style={{ fontSize: 52, marginBottom: 10 }}>🔒</div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833" }}>Confirm Deposit Received</div>
-              <div style={{ fontSize: 14, color: "#6B6459", marginTop: 8 }}>Did you receive the security deposit from</div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833", marginTop: 4 }}>{collectModal.name}?</div>
-              <div style={{ fontSize: 13, color: "#6B6459", marginTop: 2 }}>Floor {collectModal.floor} · Room {collectModal.roomNumber} · Bed {collectModal.bed}</div>
-              <div style={{ marginTop: 14, display: "inline-block", background: "#E7EFEA", color: "#2B4B43", fontWeight: 600, fontSize: 30, padding: "10px 28px", borderRadius: 14, border: "2.5px solid #A9C4B8", fontFamily: FONT_DISPLAY }}>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1F2350" }}>Confirm Deposit Received</div>
+              <div style={{ fontSize: 14, color: "#5C6180", marginTop: 8 }}>Did you receive the security deposit from</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1F2350", marginTop: 4 }}>{collectModal.name}?</div>
+              <div style={{ fontSize: 13, color: "#5C6180", marginTop: 2 }}>Floor {collectModal.floor} · Room {collectModal.roomNumber} · Bed {collectModal.bed}</div>
+              <div style={{ marginTop: 14, display: "inline-block", background: "#E9EBFA", color: "#3A41A0", fontWeight: 600, fontSize: 30, padding: "10px 28px", borderRadius: 14, border: "2.5px solid #B9BEEA", fontFamily: FONT_DISPLAY }}>
                 ₹{Number(collectModal.depositAmount).toLocaleString("en-IN")}
               </div>
             </div>
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#57524A", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#454A6B", marginBottom: 8, textAlign: "center" }}>Mode of Payment</div>
               <PaymentModeSelector mode={collectMode} setMode={setCollectMode} otherText={collectModeOther} setOtherText={setCollectModeOther} />
             </div>
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#57524A", marginBottom: 6 }}>Notes (optional — printed on the receipt)</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#454A6B", marginBottom: 6 }}>Notes (optional — printed on the receipt)</div>
               <input
                 value={collectNote}
                 onChange={e => setCollectNote(e.target.value)}
                 placeholder="e.g. partial deposit, will collect balance later…"
-                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DCD5C6", fontSize: 13, boxSizing: "border-box" }}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DFE2F0", fontSize: 13, boxSizing: "border-box" }}
               />
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setCollectModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setCollectModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
               <button onClick={async () => {
                 const t = collectModal;
                 const mode = collectMode === "Other" ? collectModeOther.trim() : collectMode;
@@ -4151,34 +4254,34 @@ function DepositsPage({ rooms, setRooms, today }) {
       {returnModal && (
         <div onClick={() => setReturnModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#DCD5C6" }} /></div>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#DFE2F0" }} /></div>
             <div style={{ textAlign: "center", marginBottom: 18 }}>
               <div style={{ fontSize: 52, marginBottom: 10 }}>↩️</div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833" }}>Return Deposit</div>
-              <div style={{ fontSize: 14, color: "#6B6459", marginTop: 8 }}>For</div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: "#1D3833", marginTop: 4 }}>{returnModal.tenant_name}</div>
-              <div style={{ fontSize: 13, color: "#6B6459", marginTop: 2 }}>Floor {returnModal.floor} · Room {returnModal.room_number} · Collected ₹{Number(returnModal.amount).toLocaleString("en-IN")}</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1F2350" }}>Return Deposit</div>
+              <div style={{ fontSize: 14, color: "#5C6180", marginTop: 8 }}>For</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: "#1F2350", marginTop: 4 }}>{returnModal.tenant_name}</div>
+              <div style={{ fontSize: 13, color: "#5C6180", marginTop: 2 }}>Floor {returnModal.floor} · Room {returnModal.room_number} · Collected ₹{Number(returnModal.amount).toLocaleString("en-IN")}</div>
             </div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 5 }}>AMOUNT TO RETURN</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", display: "block", marginBottom: 5 }}>AMOUNT TO RETURN</label>
             <div style={{ position: "relative", marginBottom: 14 }}>
-              <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#6B6459", fontWeight: 700 }}>₹</span>
+              <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#5C6180", fontWeight: 700 }}>₹</span>
               <input type="number" min="0" value={returnAmount} onChange={e => setReturnAmount(e.target.value)} style={{ ...inputStyle, paddingLeft: 26 }} />
             </div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 5 }}>NOTE (optional — e.g. deduction reason)</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", display: "block", marginBottom: 5 }}>NOTE (optional — e.g. deduction reason)</label>
             <input value={returnNote} onChange={e => setReturnNote(e.target.value)} placeholder="e.g. ₹500 deducted for damage" style={{ ...inputStyle, marginBottom: 18 }} />
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#57524A", marginBottom: 8, textAlign: "center" }}>Mode of Return</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#454A6B", marginBottom: 8, textAlign: "center" }}>Mode of Return</div>
               <PaymentModeSelector mode={returnMode} setMode={setReturnMode} otherText={returnModeOther} setOtherText={setReturnModeOther} />
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setReturnModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setReturnModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
               <button onClick={async () => {
                 const row = returnModal;
                 const mode = returnMode === "Other" ? returnModeOther.trim() : returnMode;
                 const amt = Number(returnAmount) || 0;
                 setReturnModal(null);
                 await confirmReturn(row, amt, mode, returnNote.trim());
-              }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#2B4B43", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>↩️ Confirm Return</button>
+              }} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: "#3A41A0", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>↩️ Confirm Return</button>
             </div>
           </div>
         </div>
@@ -4190,13 +4293,13 @@ function DepositsPage({ rooms, setRooms, today }) {
       {undoConfirm && (
         <div onClick={() => setUndoConfirm(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 200 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 440, boxShadow: "0 -8px 40px #0004" }}>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#DCD5C6" }} /></div>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#DFE2F0" }} /></div>
             <div style={{ textAlign: "center", marginBottom: 22 }}>
               <div style={{ fontSize: 44, marginBottom: 10 }}>⚠️</div>
-              <div style={{ fontWeight: 800, fontSize: 19, color: "#1D3833" }}>
+              <div style={{ fontWeight: 800, fontSize: 19, color: "#1F2350" }}>
                 {undoConfirm.type === "collect" ? "Undo Deposit Collection?" : "Undo Deposit Return?"}
               </div>
-              <div style={{ fontSize: 14, color: "#6B6459", marginTop: 10, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 14, color: "#5C6180", marginTop: 10, lineHeight: 1.5 }}>
                 {undoConfirm.type === "collect"
                   ? <>This will <b>permanently delete</b> the deposit record for <b>{undoConfirm.row.tenant_name}</b> (₹{Number(undoConfirm.row.amount).toLocaleString("en-IN")}) and move them back to Pending Collection. This can't be undone — you'd need to collect it again from scratch.</>
                   : <>This will move <b>{undoConfirm.row.tenant_name}</b>'s deposit (₹{Number(undoConfirm.row.return_amount).toLocaleString("en-IN")} returned) back to <b>Held</b>. Use this only if the return was recorded by mistake.</>
@@ -4204,7 +4307,7 @@ function DepositsPage({ rooms, setRooms, today }) {
               </div>
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setUndoConfirm(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setUndoConfirm(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</button>
               <button onClick={async () => {
                 const { type, row } = undoConfirm;
                 setUndoConfirm(null);
@@ -4229,27 +4332,27 @@ function DepositsPage({ rooms, setRooms, today }) {
             <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 20, width: "100%", maxWidth: 480, maxHeight: "85vh", display: "flex", flexDirection: "column" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <div style={{ fontWeight: 800, fontSize: 18 }}>📜 Full Return History</div>
-                <button onClick={() => setShowReturnHistory(false)} style={{ background: "#F2EEE4", border: "none", borderRadius: "50%", width: 28, height: 28, cursor: "pointer", fontSize: 14 }}>✕</button>
+                <button onClick={() => setShowReturnHistory(false)} style={{ background: "#EEF0F9", border: "none", borderRadius: "50%", width: 28, height: 28, cursor: "pointer", fontSize: 14 }}>✕</button>
               </div>
               <input
                 placeholder="Search by name or phone…"
                 value={historySearch}
                 onChange={e => setHistorySearch(e.target.value)}
-                style={{ padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DCD5C6", fontSize: 14, marginBottom: 12, boxSizing: "border-box" }}
+                style={{ padding: "9px 12px", borderRadius: 9, border: "1.5px solid #DFE2F0", fontSize: 14, marginBottom: 12, boxSizing: "border-box" }}
               />
               <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
                 {rows.length === 0 ? (
-                  <div style={{ textAlign: "center", color: "#9C9585", padding: 20 }}>No returned deposits {q ? `match "${historySearch}"` : "yet"}.</div>
+                  <div style={{ textAlign: "center", color: "#7F85A6", padding: 20 }}>No returned deposits {q ? `match "${historySearch}"` : "yet"}.</div>
                 ) : rows.map(row => (
-                  <div key={row.id} style={{ background: "#F6F3EA", borderRadius: 10, padding: "10px 12px" }}>
+                  <div key={row.id} style={{ background: "#F5F6FC", borderRadius: 10, padding: "10px 12px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 13 }}>{row.tenant_name}</div>
-                        <div style={{ fontSize: 11, color: "#9C9585" }}>Floor {row.floor} · Room {row.room_number} · Returned {fmtDateIST(new Date(row.returned_at), { day: "2-digit", month: "short", year: "numeric" })}</div>
+                        <div style={{ fontSize: 11, color: "#7F85A6" }}>Floor {row.floor} · Room {row.room_number} · Returned {fmtDateIST(new Date(row.returned_at), { day: "2-digit", month: "short", year: "numeric" })}</div>
                       </div>
-                      <div style={{ fontWeight: 800, fontSize: 14, color: "#57524A" }}>₹{Number(row.return_amount).toLocaleString("en-IN")}</div>
+                      <div style={{ fontWeight: 800, fontSize: 14, color: "#454A6B" }}>₹{Number(row.return_amount).toLocaleString("en-IN")}</div>
                     </div>
-                    <button onClick={() => reprintReturned(row)} style={{ width: "100%", marginTop: 8, padding: "7px 0", borderRadius: 8, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Download Receipt</button>
+                    <button onClick={() => reprintReturned(row)} style={{ width: "100%", marginTop: 8, padding: "7px 0", borderRadius: 8, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>🧾 Download Receipt</button>
                   </div>
                 ))}
               </div>
@@ -4456,7 +4559,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
     }
     updateTenant(i, "_uploading", { ...(t._uploading || {}), [slotKey]: true });
     try {
-      const toUpload = await compressImageFile(file); // no-op for PDFs
+      const toUpload = await compressImageFile(file, slotKey === "profilePicPath" ? 400 : 1800); // no-op for PDFs
       const path = await uploadTenantPhoto(folderKey, slotKey, toUpload);
       updateTenant(i, slotKey, path);
       if (oldPath && oldPath !== path) deleteTenantPhoto(oldPath);
@@ -4658,69 +4761,69 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 12px 90px" }}>
       <div style={{ marginBottom: 14 }}>
         <h1 style={{ fontSize: 24, fontWeight: 600, margin: "0 0 3px", fontFamily: FONT_DISPLAY }}>Rooms</h1>
-        <p style={{ margin: 0, color: "#6B6459", fontSize: 14 }}>Click any room to manage beds, tenants && details</p>
+        <p style={{ margin: 0, color: "#5C6180", fontSize: 14 }}>Click any room to manage beds, tenants && details</p>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 8, marginBottom: 14 }}>
         {FLOORS.map(f => (
           <button key={f} onClick={() => setActiveFloor(f)} style={{
             padding: "12px 8px", borderRadius: 12, border: "none",
-            background: activeFloor === f ? "#1D3833" : "#fff",
-            color: activeFloor === f ? "#fff" : "#6B6459",
+            background: activeFloor === f ? "#1F2350" : "#fff",
+            color: activeFloor === f ? "#fff" : "#5C6180",
             fontWeight: 700, fontSize: 14, cursor: "pointer",
-            boxShadow: activeFloor === f ? "0 2px 8px #1D383340" : "0 1px 3px #0001",
+            boxShadow: activeFloor === f ? "0 2px 8px #1F235040" : "0 1px 3px #0001",
           }}>{FLOOR_LABELS[f]}</button>
         ))}
       </div>
 
       {isManager && (
         <div style={{ marginBottom: 14 }}>
-          <button onClick={() => setAddingRoom(true)} style={{ padding: "10px 16px", borderRadius: 10, border: "1.5px dashed #9C9585", background: "#fff", color: "#57524A", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+          <button onClick={() => setAddingRoom(true)} style={{ padding: "10px 16px", borderRadius: 10, border: "1.5px dashed #7F85A6", background: "#fff", color: "#454A6B", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
             + Add Room to {FLOOR_LABELS[activeFloor]}
           </button>
         </div>
       )}
 
       <div style={{ display: "flex", gap: 10, marginBottom: 14, overflowX: "auto", paddingBottom: 4, WebkitOverflowScrolling: "touch" }}>
-        {[{ label: "Total Beds", value: stats.total, color: "#2B4B43" }, { label: "Occupied", value: stats.occupied, color: "#C1543C" }, { label: "Available", value: stats.total - stats.occupied, color: "#3C8F5C" }, { label: "Full", value: stats.full, color: "#B2551F" }, { label: "Partial", value: stats.partial, color: "#C1971F" }, { label: "Empty", value: stats.empty, color: "#6B6459" }].map(s => (
+        {[{ label: "Total Beds", value: stats.total, color: "#3A41A0" }, { label: "Occupied", value: stats.occupied, color: "#C1543C" }, { label: "Available", value: stats.total - stats.occupied, color: "#3C8F5C" }, { label: "Full", value: stats.full, color: "#B2551F" }, { label: "Partial", value: stats.partial, color: "#C1971F" }, { label: "Empty", value: stats.empty, color: "#5C6180" }].map(s => (
           <div key={s.label} style={{ background: "#fff", borderRadius: 10, padding: "10px 14px", boxShadow: "0 1px 3px #0001", flexShrink: 0, minWidth: 90 }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 500 }}>{s.label}</div>
+            <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 500 }}>{s.label}</div>
           </div>
         ))}
       </div>
 
       <div style={{ marginBottom: 14 }}>
         <input placeholder="🔍  Search room, name, phone…" value={search} onChange={e => setSearch(e.target.value)}
-          style={{ padding: "10px 14px", borderRadius: 10, border: "1.5px solid #DCD5C6", fontSize: 14, outline: "none", width: "100%", background: "#fff", boxSizing: "border-box", marginBottom: 10 }} />
+          style={{ padding: "10px 14px", borderRadius: 10, border: "1.5px solid #DFE2F0", fontSize: 14, outline: "none", width: "100%", background: "#fff", boxSizing: "border-box", marginBottom: 10 }} />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           {["all", "empty", "partial", "full"].map(s => {
             const active = filterStatus.includes(s);
             return (
               <button key={s} onClick={() => toggleStatusFilter(s)} style={{
-                padding: "7px 14px", borderRadius: 8, border: "1.5px solid " + (active ? "#1D3833" : "#DCD5C6"),
-                background: active ? "#1D3833" : "#fff", color: active ? "#fff" : "#6B6459",
+                padding: "7px 14px", borderRadius: 8, border: "1.5px solid " + (active ? "#1F2350" : "#DFE2F0"),
+                background: active ? "#1F2350" : "#fff", color: active ? "#fff" : "#5C6180",
                 fontWeight: 600, fontSize: 12, cursor: "pointer",
               }}>{s === "all" ? "All" : s.charAt(0).toUpperCase() + s.slice(1)}</button>
             );
           })}
-          <span style={{ fontSize: 12, color: "#9C9585", marginLeft: "auto" }}>{filtered.length} rooms</span>
+          <span style={{ fontSize: 12, color: "#7F85A6", marginLeft: "auto" }}>{filtered.length} rooms</span>
         </div>
         {seatSizes.length > 1 && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
-            <span style={{ fontSize: 11, color: "#9C9585", fontWeight: 600 }}>SEATS</span>
+            <span style={{ fontSize: 11, color: "#7F85A6", fontWeight: 600 }}>SEATS</span>
             {seatSizes.map(n => {
               const active = filterSeats.includes(n);
               return (
                 <button key={n} onClick={() => toggleSeatFilter(n)} style={{
-                  padding: "6px 12px", borderRadius: 8, border: "1.5px solid " + (active ? "#6B4E86" : "#DCD5C6"),
-                  background: active ? "#6B4E86" : "#fff", color: active ? "#fff" : "#6B6459",
+                  padding: "6px 12px", borderRadius: 8, border: "1.5px solid " + (active ? "#6B4E86" : "#DFE2F0"),
+                  background: active ? "#6B4E86" : "#fff", color: active ? "#fff" : "#5C6180",
                   fontWeight: 600, fontSize: 12, cursor: "pointer",
                 }}>{seatLabel(n)}</button>
               );
             })}
             {filterSeats.length > 0 && (
-              <button onClick={() => setFilterSeats([])} style={{ padding: "6px 10px", borderRadius: 8, border: "1.5px solid #DCD5C6", background: "#fff", color: "#9C9585", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+              <button onClick={() => setFilterSeats([])} style={{ padding: "6px 10px", borderRadius: 8, border: "1.5px solid #DFE2F0", background: "#fff", color: "#7F85A6", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
                 Clear
               </button>
             )}
@@ -4740,64 +4843,64 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
               style={{ background: sc.bg, border: `2px solid ${sc.border}`, borderRadius: "6px 14px 14px 14px", padding: "11px 11px", cursor: isManager ? "pointer" : "default", transition: "transform 0.12s, box-shadow 0.12s", userSelect: "none" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ width: 9, height: 9, borderRadius: "50%", border: `1.5px solid ${sc.border}`, background: "#F1EFE9", flexShrink: 0 }} />
-                  <span style={{ fontWeight: 700, fontSize: 15, color: "#1D3833", fontFamily: FONT_DISPLAY }}>R{room.number}</span>
+                  <span style={{ width: 9, height: 9, borderRadius: "50%", border: `1.5px solid ${sc.border}`, background: "#F4F5FA", flexShrink: 0 }} />
+                  <span style={{ fontWeight: 700, fontSize: 15, color: "#1F2350", fontFamily: FONT_DISPLAY }}>R{room.number}</span>
                 </div>
                 <span style={{ fontSize: 10, fontWeight: 600, color: sc.text, background: sc.border + "44", padding: "2px 7px", borderRadius: 99 }}>{sc.label}</span>
               </div>
-              {room.label && <div style={{ fontSize: 10, color: "#6B6459", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{room.label}</div>}
+              {room.label && <div style={{ fontSize: 10, color: "#5C6180", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{room.label}</div>}
               <div style={{ marginTop: 6, fontSize: 12, fontWeight: 600, color: sc.text }}>🛏 {occ}/{room.beds}</div>
               {active.length > 0 && (
                 <div style={{ marginTop: 5, display: "flex", flexDirection: "column", gap: 2 }}>
                   {active.slice(0, 2).map((t, i) => (
-                    <div key={i} style={{ fontSize: 10, color: "#3A362E", background: "#fff9", borderRadius: 5, padding: "2px 5px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div key={i} style={{ fontSize: 10, color: "#2B2F52", background: "#fff9", borderRadius: 5, padding: "2px 5px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {(t.billingType||'monthly')==='daily'?'☀️':(t.billingType||'monthly')==='15day'?'🔁':'👤'} {t.name}{t.phone ? ` · ${t.phone}` : ""}
                     </div>
                   ))}
-                  {active.length > 2 && <div style={{ fontSize: 10, color: "#9C9585" }}>+{active.length - 2} more</div>}
+                  {active.length > 2 && <div style={{ fontSize: 10, color: "#7F85A6" }}>+{active.length - 2} more</div>}
                 </div>
               )}
             </div>
           );
         })}
       </div>
-      {filtered.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: "#9C9585" }}>No rooms match.</div>}
+      {filtered.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: "#7F85A6" }}>No rooms match.</div>}
 
       {editingRoom && editForm && (
         <div onClick={() => setEditingRoom(null)} style={{ position: "fixed", inset: 0, background: "#0008", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 100, padding: 0 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "20px 20px 0 0", padding: "0 0 20px", width: "100%", maxWidth: 600, boxShadow: "0 -8px 40px #0004", maxHeight: "93vh", overflowY: "auto", marginTop: "auto" }}>
             {/* Drag handle */}
             <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 4px" }}>
-              <div style={{ width: 40, height: 4, borderRadius: 99, background: "#DCD5C6" }} />
+              <div style={{ width: 40, height: 4, borderRadius: 99, background: "#DFE2F0" }} />
             </div>
             <div style={{ padding: "0 20px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: 18 }}>{FLOOR_LABELS[editingRoom.floor]} — Room {editingRoom.number}</div>
-                <div style={{ fontSize: 13, color: "#9C9585", marginTop: 2 }}>Manage beds && tenants</div>
+                <div style={{ fontSize: 13, color: "#7F85A6", marginTop: 2 }}>Manage beds && tenants</div>
               </div>
-              <button onClick={() => setEditingRoom(null)} style={{ background: "#F2EEE4", border: "none", borderRadius: 8, width: 32, height: 32, fontSize: 16, cursor: "pointer", color: "#6B6459" }}>✕</button>
+              <button onClick={() => setEditingRoom(null)} style={{ background: "#EEF0F9", border: "none", borderRadius: 8, width: 32, height: 32, fontSize: 16, cursor: "pointer", color: "#5C6180" }}>✕</button>
             </div>
 
-            <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 5 }}>ROOM LABEL</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", display: "block", marginBottom: 5 }}>ROOM LABEL</label>
             <input value={editForm.label} onChange={e => setEditForm(f => ({ ...f, label: e.target.value }))} placeholder="e.g. Deluxe, Dorm A…" style={{ ...inputStyle, marginBottom: 18 }} />
 
-            <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 8 }}>NUMBER OF BEDS</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", display: "block", marginBottom: 8 }}>NUMBER OF BEDS</label>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 22 }}>
-              <button onClick={() => changeBedsInForm(editForm.beds - 1)} style={{ width: 36, height: 36, borderRadius: 8, border: "1.5px solid #DCD5C6", background: "#F6F3EA", fontWeight: 700, fontSize: 20, cursor: "pointer" }}>−</button>
+              <button onClick={() => changeBedsInForm(editForm.beds - 1)} style={{ width: 36, height: 36, borderRadius: 8, border: "1.5px solid #DFE2F0", background: "#F5F6FC", fontWeight: 700, fontSize: 20, cursor: "pointer" }}>−</button>
               <span style={{ fontSize: 22, fontWeight: 800, minWidth: 32, textAlign: "center" }}>{editForm.beds}</span>
-              <button onClick={() => changeBedsInForm(editForm.beds + 1)} style={{ width: 36, height: 36, borderRadius: 8, border: "1.5px solid #DCD5C6", background: "#F6F3EA", fontWeight: 700, fontSize: 20, cursor: "pointer" }}>+</button>
-              <span style={{ fontSize: 12, color: "#9C9585" }}>max 20</span>
+              <button onClick={() => changeBedsInForm(editForm.beds + 1)} style={{ width: 36, height: 36, borderRadius: 8, border: "1.5px solid #DFE2F0", background: "#F5F6FC", fontWeight: 700, fontSize: 20, cursor: "pointer" }}>+</button>
+              <span style={{ fontSize: 12, color: "#7F85A6" }}>max 20</span>
             </div>
 
-            <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 10 }}>TENANT DETAILS</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", display: "block", marginBottom: 10 }}>TENANT DETAILS</label>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {editForm.tenants.map((t, i) => (
-                <div key={i} style={{ background: "#F6F3EA", borderRadius: 12, padding: "14px", border: "1.5px solid #DCD5C6" }}>
+                <div key={i} style={{ background: "#F5F6FC", borderRadius: 12, padding: "14px", border: "1.5px solid #DFE2F0" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#3A362E" }}>🛏 Bed {i + 1}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#2B2F52" }}>🛏 Bed {i + 1}</span>
                     <div style={{ display: "flex", gap: 6 }}>
-                      {t.name && t.dbId && <button onClick={() => openMoveModal(i)} style={{ fontSize: 11, color: "#2B4B43", background: "#E7EFEA", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontWeight: 600 }}>↔️ Move</button>}
+                      {t.name && t.dbId && <button onClick={() => openMoveModal(i)} style={{ fontSize: 11, color: "#3A41A0", background: "#E9EBFA", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontWeight: 600 }}>↔️ Move</button>}
                       {t.name && <button onClick={() => setClearConfirm({ bedIndex: i, name: t.name })} style={{ fontSize: 11, color: "#C1543C", background: "#FBEEEA", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontWeight: 600 }}>Clear</button>}
                     </div>
                   </div>
@@ -4806,20 +4909,20 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                       <input type="tel" inputMode="numeric" maxLength={10} placeholder="Phone number" value={t.phone || ""} onChange={e => updateTenant(i, "phone", sanitizePhoneInput(e.target.value))}
                         style={{ ...inputStyle, ...(phoneIssues[i] ? { border: "1.5px solid #C1543C", background: "#FBEEEA" } : {}) }} />
-                      <input type="date" value={t.admissionDate} onChange={e => updateTenant(i, "admissionDate", e.target.value)} style={{ ...inputStyle, color: t.admissionDate ? "#1D3833" : "#9C9585" }} />
+                      <input type="date" value={t.admissionDate} onChange={e => updateTenant(i, "admissionDate", e.target.value)} style={{ ...inputStyle, color: t.admissionDate ? "#1F2350" : "#7F85A6" }} />
                     </div>
                     {phoneIssues[i] && (
                       <div style={{ fontSize: 11, color: "#A83D2A", fontWeight: 600, marginTop: -4 }}>⚠️ {phoneIssues[i]}</div>
                     )}
                     {/* Billing type — moved above Rent Amount so the amount field
                         below is clearly labeled for whichever type is picked */}
-                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", borderTop: "1px solid #DCD5C6", paddingTop: 10, marginTop: 2 }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: "#6B6459", marginRight: 4 }}>BILLING:</span>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", borderTop: "1px solid #DFE2F0", paddingTop: 10, marginTop: 2 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#5C6180", marginRight: 4 }}>BILLING:</span>
                       {["monthly", "15day", "daily"].map(bt => (
                         <button key={bt} onClick={() => updateTenant(i, "billingType", bt)} style={{
                           padding: "5px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
-                          background: (t.billingType || "monthly") === bt ? (bt === "daily" ? "#C1861F" : bt === "15day" ? "#6B4E86" : "#2B4B43") : "#DCD5C6",
-                          color: (t.billingType || "monthly") === bt ? "#fff" : "#6B6459",
+                          background: (t.billingType || "monthly") === bt ? (bt === "daily" ? "#C1861F" : bt === "15day" ? "#6B4E86" : "#3A41A0") : "#DFE2F0",
+                          color: (t.billingType || "monthly") === bt ? "#fff" : "#5C6180",
                           transition: "all 0.15s",
                         }}>
                           {bt === "monthly" ? "📅 Monthly" : bt === "15day" ? "🔁 15-Day" : "☀️ Per Day"}
@@ -4827,12 +4930,12 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                       ))}
                     </div>
                     {/* Rent Amount — label and unit now match whichever billing type is selected */}
-                    <div style={{ borderTop: "1px solid #DCD5C6", paddingTop: 10, marginTop: 2 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>
+                    <div style={{ borderTop: "1px solid #DFE2F0", paddingTop: 10, marginTop: 2 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 6 }}>
                         💰 {(t.billingType || "monthly") === "daily" ? "PER DAY RENT AMOUNT" : (t.billingType || "monthly") === "15day" ? "RENT PER 15 DAYS" : "MONTHLY RENT AMOUNT"}
                       </div>
                       <div style={{ position: "relative" }}>
-                        <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#6B6459", fontWeight: 700 }}>₹</span>
+                        <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#5C6180", fontWeight: 700 }}>₹</span>
                         <input
                           type="number"
                           placeholder={(t.billingType || "monthly") === "daily" ? "e.g. 300" : (t.billingType || "monthly") === "15day" ? "e.g. 3500" : "e.g. 5000"}
@@ -4851,10 +4954,10 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                     </div>
                     {/* Security Deposit Amount — separate from rent. Collecting/returning it
                         is done from the Deposits tab, this just records the agreed amount. */}
-                    <div style={{ borderTop: "1px solid #DCD5C6", paddingTop: 10, marginTop: 2 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>🔒 SECURITY DEPOSIT AMOUNT</div>
+                    <div style={{ borderTop: "1px solid #DFE2F0", paddingTop: 10, marginTop: 2 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 6 }}>🔒 SECURITY DEPOSIT AMOUNT</div>
                       <div style={{ position: "relative" }}>
-                        <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#6B6459", fontWeight: 700 }}>₹</span>
+                        <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#5C6180", fontWeight: 700 }}>₹</span>
                         <input
                           type="number"
                           placeholder="e.g. 3000"
@@ -4866,7 +4969,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                         />
                       </div>
                       {t.depositAmount && (
-                        <div style={{ fontSize: 11, marginTop: 4, color: t.depositReturnedOn ? "#6B6459" : t.depositPaidOn ? "#2B4B43" : "#8C6215" }}>
+                        <div style={{ fontSize: 11, marginTop: 4, color: t.depositReturnedOn ? "#5C6180" : t.depositPaidOn ? "#3A41A0" : "#8C6215" }}>
                           {t.depositReturnedOn ? `↩️ Returned ₹${Number(t.depositReturnAmount || t.depositAmount).toLocaleString("en-IN")}` : t.depositPaidOn ? "🔒 Deposit held — collect/return from Deposits tab" : "⏳ Not yet collected — collect from Deposits tab"}
                         </div>
                       )}
@@ -4883,8 +4986,8 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                         tenant checks out, these move to an archived PDF on
                         Drive (see History tab) and the originals are deleted
                         to keep Supabase Storage free. */}
-                    <div style={{ borderTop: "1px solid #DCD5C6", paddingTop: 10, marginTop: 2 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>📎 DOCUMENT PHOTOS</div>
+                    <div style={{ borderTop: "1px solid #DFE2F0", paddingTop: 10, marginTop: 2 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 6 }}>📎 DOCUMENT PHOTOS</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         {[
                           { key: "profilePicPath", label: "Profile photo" },
@@ -4893,7 +4996,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                           { key: "formPath", label: "Signed form" },
                         ].map(slot => (
                           <div key={slot.key} style={{ fontSize: 11 }}>
-                            <div style={{ color: "#6B6459", marginBottom: 3 }}>{slot.label}</div>
+                            <div style={{ color: "#5C6180", marginBottom: 3 }}>{slot.label}</div>
                             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                               <label style={{ ...inputStyle, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: "6px 8px", fontSize: 11, flex: 1, textAlign: "center" }}>
                                 {t._uploading && t._uploading[slot.key] ? "Uploading…" : (t[slot.key] ? "✅ Replace" : "📷 Upload")}
@@ -4915,7 +5018,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                                     try { const url = await getSignedPhotoUrl(t[slot.key]); window.open(url, "_blank"); }
                                     catch (e) { alert("Couldn't open photo: " + e.message); }
                                   }}
-                                  style={{ border: "1px solid #DCD5C6", background: "#fff", borderRadius: 6, padding: "6px 8px", fontSize: 11, cursor: "pointer" }}
+                                  style={{ border: "1px solid #DFE2F0", background: "#fff", borderRadius: 6, padding: "6px 8px", fontSize: 11, cursor: "pointer" }}
                                 >
                                   View
                                 </button>
@@ -4926,8 +5029,8 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                       </div>
                     </div>
                     {/* Father details */}
-                    <div style={{ borderTop: "1px solid #DCD5C6", paddingTop: 10, marginTop: 2 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>FATHER'S DETAILS</div>
+                    <div style={{ borderTop: "1px solid #DFE2F0", paddingTop: 10, marginTop: 2 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 6 }}>FATHER'S DETAILS</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         <input placeholder="Father's name" value={t.fatherName || ""} onChange={e => updateTenant(i, "fatherName", e.target.value)} style={inputStyle} />
                         <input type="tel" inputMode="numeric" maxLength={10} placeholder="Father's phone" value={t.fatherPhone || ""} onChange={e => updateTenant(i, "fatherPhone", sanitizePhoneInput(e.target.value))} style={inputStyle} />
@@ -4939,8 +5042,8 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                       )}
                     </div>
                     {/* Guardian details */}
-                    <div style={{ borderTop: "1px solid #DCD5C6", paddingTop: 10, marginTop: 2 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>GUARDIAN'S DETAILS <span style={{ fontWeight: 400, color: "#9C9585" }}>(if different from father)</span></div>
+                    <div style={{ borderTop: "1px solid #DFE2F0", paddingTop: 10, marginTop: 2 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 6 }}>GUARDIAN'S DETAILS <span style={{ fontWeight: 400, color: "#7F85A6" }}>(if different from father)</span></div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         <input placeholder="Guardian's name" value={t.guardianName || ""} onChange={e => updateTenant(i, "guardianName", e.target.value)} style={inputStyle} />
                         <input type="tel" inputMode="numeric" maxLength={10} placeholder="Guardian's phone" value={t.guardianPhone || ""} onChange={e => updateTenant(i, "guardianPhone", sanitizePhoneInput(e.target.value))} style={inputStyle} />
@@ -4952,21 +5055,21 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                       )}
                     </div>
                     {/* Address details */}
-                    <div style={{ borderTop: "1px solid #DCD5C6", paddingTop: 10, marginTop: 2 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>📍 ADDRESS</div>
+                    <div style={{ borderTop: "1px solid #DFE2F0", paddingTop: 10, marginTop: 2 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 6 }}>📍 ADDRESS</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         <input placeholder="Full address" value={t.address || ""} onChange={e => updateTenant(i, "address", e.target.value)} style={inputStyle} />
                         <input placeholder="City" value={t.city || ""} onChange={e => updateTenant(i, "city", e.target.value)} style={inputStyle} />
                       </div>
                     </div>
                     {/* Occupation details */}
-                    <div style={{ borderTop: "1px solid #DCD5C6", paddingTop: 10, marginTop: 2 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>💼 JOB / COLLEGE</div>
+                    <div style={{ borderTop: "1px solid #DFE2F0", paddingTop: 10, marginTop: 2 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 6 }}>💼 JOB / COLLEGE</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                           <div>
-                            <div style={{ fontSize: 10, color: "#9C9585", marginBottom: 3 }}>Type</div>
-                            <select value={t.occupation || ""} onChange={e => updateTenant(i, "occupation", e.target.value)} style={{ ...inputStyle, color: t.occupation ? "#1D3833" : "#9C9585" }}>
+                            <div style={{ fontSize: 10, color: "#7F85A6", marginBottom: 3 }}>Type</div>
+                            <select value={t.occupation || ""} onChange={e => updateTenant(i, "occupation", e.target.value)} style={{ ...inputStyle, color: t.occupation ? "#1F2350" : "#7F85A6" }}>
                               <option value="">Select type…</option>
                               <option value="job">Job</option>
                               <option value="college">College/University</option>
@@ -4976,14 +5079,14 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                             </select>
                           </div>
                           <div>
-                            <div style={{ fontSize: 10, color: "#9C9585", marginBottom: 3 }}>
+                            <div style={{ fontSize: 10, color: "#7F85A6", marginBottom: 3 }}>
                               {t.occupation === "job" ? "Employee ID" : t.occupation === "college" || t.occupation === "school" ? "Student ID" : "ID Number"}
                             </div>
                             <input placeholder="ID number" value={t.occupationId || ""} onChange={e => updateTenant(i, "occupationId", e.target.value)} style={inputStyle} />
                           </div>
                         </div>
                         <div>
-                          <div style={{ fontSize: 10, color: "#9C9585", marginBottom: 3 }}>
+                          <div style={{ fontSize: 10, color: "#7F85A6", marginBottom: 3 }}>
                             {t.occupation === "job" ? "Company name" : t.occupation === "college" ? "College name" : "Place name"}
                           </div>
                           <input placeholder={t.occupation === "job" ? "Company name" : t.occupation === "college" ? "College name" : "Place name"} value={t.occupationPlace || ""} onChange={e => updateTenant(i, "occupationPlace", e.target.value)} style={inputStyle} />
@@ -4991,19 +5094,19 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                       </div>
                     </div>
                     {/* Reason to stay */}
-                    <div style={{ borderTop: "1px solid #DCD5C6", paddingTop: 10, marginTop: 2 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>📝 REASON TO STAY</div>
+                    <div style={{ borderTop: "1px solid #DFE2F0", paddingTop: 10, marginTop: 2 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 6 }}>📝 REASON TO STAY</div>
                       <textarea placeholder="Why are they staying? e.g. studying in nearby college, working at XYZ company…" value={t.reasonToStay || ""} onChange={e => updateTenant(i, "reasonToStay", e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} />
                     </div>
                     {(t.billingType || "monthly") === "daily" && (
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         <div>
-                          <div style={{ fontSize: 10, color: "#6B6459", marginBottom: 3, fontWeight: 600 }}>CHECK-IN</div>
-                          <input type="date" value={t.admissionDate} onChange={e => updateTenant(i, "admissionDate", e.target.value)} style={{ ...inputStyle, color: t.admissionDate ? "#1D3833" : "#9C9585" }} />
+                          <div style={{ fontSize: 10, color: "#5C6180", marginBottom: 3, fontWeight: 600 }}>CHECK-IN</div>
+                          <input type="date" value={t.admissionDate} onChange={e => updateTenant(i, "admissionDate", e.target.value)} style={{ ...inputStyle, color: t.admissionDate ? "#1F2350" : "#7F85A6" }} />
                         </div>
                         <div>
-                          <div style={{ fontSize: 10, color: "#6B6459", marginBottom: 3, fontWeight: 600 }}>CHECK-OUT</div>
-                          <input type="date" value={t.checkoutDate || ""} onChange={e => updateTenant(i, "checkoutDate", e.target.value)} style={{ ...inputStyle, color: t.checkoutDate ? "#1D3833" : "#9C9585" }} />
+                          <div style={{ fontSize: 10, color: "#5C6180", marginBottom: 3, fontWeight: 600 }}>CHECK-OUT</div>
+                          <input type="date" value={t.checkoutDate || ""} onChange={e => updateTenant(i, "checkoutDate", e.target.value)} style={{ ...inputStyle, color: t.checkoutDate ? "#1F2350" : "#7F85A6" }} />
                         </div>
                       </div>
                     )}
@@ -5013,8 +5116,8 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                       const days = Math.max(0, Math.round((out - inn) / 86400000));
                       return <div style={{ fontSize: 11, color: "#C1861F", fontWeight: 600 }}>☀️ {days} day{days !== 1 ? "s" : ""} stay · {fmt(t.admissionDate)} → {fmt(t.checkoutDate)}</div>;
                     })()}
-                    {(t.billingType || "monthly") === "monthly" && t.admissionDate && <div style={{ fontSize: 11, color: "#6B6459" }}>📅 Admitted: {fmt(t.admissionDate)} · Rent due on {ordinal(new Date(t.admissionDate + "T00:00:00").getDate())} every month</div>}
-                    {(t.billingType || "monthly") === "15day" && t.admissionDate && <div style={{ fontSize: 11, color: "#6B6459" }}>🔁 Admitted: {fmt(t.admissionDate)} · Rent due every 15 days from admission</div>}
+                    {(t.billingType || "monthly") === "monthly" && t.admissionDate && <div style={{ fontSize: 11, color: "#5C6180" }}>📅 Admitted: {fmt(t.admissionDate)} · Rent due on {ordinal(new Date(t.admissionDate + "T00:00:00").getDate())} every month</div>}
+                    {(t.billingType || "monthly") === "15day" && t.admissionDate && <div style={{ fontSize: 11, color: "#5C6180" }}>🔁 Admitted: {fmt(t.admissionDate)} · Rent due every 15 days from admission</div>}
                   </div>
                 </div>
               ))}
@@ -5027,8 +5130,8 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
             )}
 
             <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
-              <button onClick={() => setEditingRoom(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>Cancel</button>
-              <button onClick={() => { const outgoing = getOutgoingHeldDeposits(); if (outgoing.length > 0) { setDepositWarning(outgoing); const init = {}; outgoing.forEach(o => { init[o.bed] = { amount: String(o.depositAmount), mode: "Cash", modeOther: "", note: "", step: "form" }; }); setReturnState(init); return; } saveEdit(); }} disabled={Object.keys(phoneIssues).length > 0} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: Object.keys(phoneIssues).length > 0 ? "#9C9585" : "#1D3833", color: "#fff", fontWeight: 700, fontSize: 15, cursor: Object.keys(phoneIssues).length > 0 ? "not-allowed" : "pointer" }}>💾 Save Changes</button>
+              <button onClick={() => setEditingRoom(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => { const outgoing = getOutgoingHeldDeposits(); if (outgoing.length > 0) { setDepositWarning(outgoing); const init = {}; outgoing.forEach(o => { init[o.bed] = { amount: String(o.depositAmount), mode: "Cash", modeOther: "", note: "", step: "form" }; }); setReturnState(init); return; } saveEdit(); }} disabled={Object.keys(phoneIssues).length > 0} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: Object.keys(phoneIssues).length > 0 ? "#7F85A6" : "#1F2350", color: "#fff", fontWeight: 700, fontSize: 15, cursor: Object.keys(phoneIssues).length > 0 ? "not-allowed" : "pointer" }}>💾 Save Changes</button>
             </div>
             {isManager && (
               <div style={{ textAlign: "center", marginTop: 14 }}>
@@ -5047,15 +5150,15 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
         <div onClick={() => !creatingRoom && setAddingRoom(false)} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 340 }}>
             <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>Add Room</div>
-            <div style={{ fontSize: 13, color: "#6B6459", marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: "#5C6180", marginBottom: 16 }}>
               New room will be added to <b>{FLOOR_LABELS[activeFloor]}</b> as Room #{floorRooms.length > 0 ? Math.max(...floorRooms.map(r => r.number)) + 1 : 1}
             </div>
-            <label style={{ fontSize: 12, fontWeight: 700, color: "#57524A" }}>Number of beds</label>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "#454A6B" }}>Number of beds</label>
             <input type="number" min={1} max={20} value={newRoomBeds} onChange={e => setNewRoomBeds(e.target.value)}
-              style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #DCD5C6", fontSize: 15, marginTop: 6, marginBottom: 18, boxSizing: "border-box" }} />
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #DFE2F0", fontSize: 15, marginTop: 6, marginBottom: 18, boxSizing: "border-box" }} />
             <div style={{ display: "flex", gap: 10 }}>
-              <button disabled={creatingRoom} onClick={() => setAddingRoom(false)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: creatingRoom ? "default" : "pointer" }}>Cancel</button>
-              <button disabled={creatingRoom} onClick={handleAddRoom} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#1D3833", color: "#fff", fontWeight: 700, fontSize: 14, cursor: creatingRoom ? "default" : "pointer", opacity: creatingRoom ? 0.7 : 1 }}>
+              <button disabled={creatingRoom} onClick={() => setAddingRoom(false)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 14, cursor: creatingRoom ? "default" : "pointer" }}>Cancel</button>
+              <button disabled={creatingRoom} onClick={handleAddRoom} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#1F2350", color: "#fff", fontWeight: 700, fontSize: 14, cursor: creatingRoom ? "default" : "pointer", opacity: creatingRoom ? 0.7 : 1 }}>
                 {creatingRoom ? "Creating…" : "+ Create Room"}
               </button>
             </div>
@@ -5070,28 +5173,28 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
         return (
           <div onClick={() => !moving && setMoveModal(null)} style={{ position: "fixed", inset: 0, background: "#0009", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 250 }}>
             <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "22px 22px 0 0", padding: "20px 24px 36px", width: "100%", maxWidth: 480, maxHeight: "88vh", overflowY: "auto", boxShadow: "0 -8px 40px #0004" }}>
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#DCD5C6" }} /></div>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}><div style={{ width: 40, height: 4, borderRadius: 99, background: "#DFE2F0" }} /></div>
               <div style={{ textAlign: "center", marginBottom: 18 }}>
                 <div style={{ fontSize: 40, marginBottom: 8 }}>↔️</div>
-                <div style={{ fontWeight: 800, fontSize: 19, color: "#1D3833" }}>Move {moveModal.tenant.name}</div>
-                <div style={{ fontSize: 13, color: "#6B6459", marginTop: 4 }}>Currently: {moveModal.fromLabel}</div>
+                <div style={{ fontWeight: 800, fontSize: 19, color: "#1F2350" }}>Move {moveModal.tenant.name}</div>
+                <div style={{ fontSize: 13, color: "#5C6180", marginTop: 4 }}>Currently: {moveModal.fromLabel}</div>
               </div>
 
-              <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 8 }}>1. CHOOSE FLOOR</label>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", display: "block", marginBottom: 8 }}>1. CHOOSE FLOOR</label>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(80px, 1fr))", gap: 8, marginBottom: 18 }}>
                 {FLOORS.map(f => (
                   <button key={f} onClick={() => { setMoveFloor(f); setMoveRoomId(null); setMoveBedIndex(null); }} style={{
                     padding: "9px 6px", borderRadius: 10, border: "none",
-                    background: moveFloor === f ? "#1D3833" : "#F2EEE4",
-                    color: moveFloor === f ? "#fff" : "#6B6459",
+                    background: moveFloor === f ? "#1F2350" : "#EEF0F9",
+                    color: moveFloor === f ? "#fff" : "#5C6180",
                     fontWeight: 700, fontSize: 13, cursor: "pointer",
                   }}>{FLOOR_LABELS[f]}</button>
                 ))}
               </div>
 
-              <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 8 }}>2. CHOOSE ROOM</label>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", display: "block", marginBottom: 8 }}>2. CHOOSE ROOM</label>
               {floorRoomsForMove.length === 0 ? (
-                <div style={{ fontSize: 13, color: "#9C9585", marginBottom: 18 }}>No other rooms on this floor.</div>
+                <div style={{ fontSize: 13, color: "#7F85A6", marginBottom: 18 }}>No other rooms on this floor.</div>
               ) : (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))", gap: 8, marginBottom: 18, maxHeight: 160, overflowY: "auto" }}>
                   {floorRoomsForMove.map(r => {
@@ -5101,13 +5204,13 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                     return (
                       <button key={rid} disabled={disabled} onClick={() => { setMoveRoomId(rid); setMoveBedIndex(null); }} style={{
                         padding: "8px 6px", borderRadius: 10,
-                        border: moveRoomId === rid ? "2px solid #2B4B43" : "1.5px solid #DCD5C6",
-                        background: disabled ? "#F6F3EA" : moveRoomId === rid ? "#E7EFEA" : "#fff",
-                        color: disabled ? "#C9C0AC" : "#1D3833",
+                        border: moveRoomId === rid ? "2px solid #3A41A0" : "1.5px solid #DFE2F0",
+                        background: disabled ? "#F5F6FC" : moveRoomId === rid ? "#E9EBFA" : "#fff",
+                        color: disabled ? "#C6CAE0" : "#1F2350",
                         fontWeight: 700, fontSize: 13, cursor: disabled ? "not-allowed" : "pointer", textAlign: "center",
                       }}>
                         R{r.number}
-                        <div style={{ fontSize: 10, fontWeight: 500, color: disabled ? "#C9C0AC" : "#6B6459" }}>{disabled ? "Full" : `${freeBeds} free`}</div>
+                        <div style={{ fontSize: 10, fontWeight: 500, color: disabled ? "#C6CAE0" : "#5C6180" }}>{disabled ? "Full" : `${freeBeds} free`}</div>
                       </button>
                     );
                   })}
@@ -5116,16 +5219,16 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
 
               {targetRoom && (
                 <>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 8 }}>3. CHOOSE BED</label>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", display: "block", marginBottom: 8 }}>3. CHOOSE BED</label>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(70px, 1fr))", gap: 8, marginBottom: 18 }}>
                     {targetRoom.tenants.map((tn, bi) => {
                       const occupied = tn.name && tn.name.trim() !== "";
                       return (
                         <button key={bi} disabled={occupied} onClick={() => setMoveBedIndex(bi)} style={{
                           padding: "10px 4px", borderRadius: 10,
-                          border: moveBedIndex === bi ? "2px solid #2B4B43" : "1.5px solid #DCD5C6",
-                          background: occupied ? "#F6F3EA" : moveBedIndex === bi ? "#E7EFEA" : "#fff",
-                          color: occupied ? "#C9C0AC" : "#1D3833",
+                          border: moveBedIndex === bi ? "2px solid #3A41A0" : "1.5px solid #DFE2F0",
+                          background: occupied ? "#F5F6FC" : moveBedIndex === bi ? "#E9EBFA" : "#fff",
+                          color: occupied ? "#C6CAE0" : "#1F2350",
                           fontWeight: 700, fontSize: 12, cursor: occupied ? "not-allowed" : "pointer",
                         }}>
                           Bed {bi + 1}
@@ -5138,8 +5241,8 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
               )}
 
               <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-                <button disabled={moving} onClick={() => setMoveModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, fontSize: 15, cursor: moving ? "default" : "pointer" }}>Cancel</button>
-                <button disabled={moving || !moveRoomId || moveBedIndex === null} onClick={performMove} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: (!moveRoomId || moveBedIndex === null) ? "#9C9585" : "#2B4B43", color: "#fff", fontWeight: 800, fontSize: 15, cursor: (moving || !moveRoomId || moveBedIndex === null) ? "not-allowed" : "pointer" }}>
+                <button disabled={moving} onClick={() => setMoveModal(null)} style={{ flex: 1, padding: "14px 0", borderRadius: 12, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, fontSize: 15, cursor: moving ? "default" : "pointer" }}>Cancel</button>
+                <button disabled={moving || !moveRoomId || moveBedIndex === null} onClick={performMove} style={{ flex: 2, padding: "14px 0", borderRadius: 12, border: "none", background: (!moveRoomId || moveBedIndex === null) ? "#7F85A6" : "#3A41A0", color: "#fff", fontWeight: 800, fontSize: 15, cursor: (moving || !moveRoomId || moveBedIndex === null) ? "not-allowed" : "pointer" }}>
                   {moving ? "Moving…" : "↔️ Confirm Move"}
                 </button>
               </div>
@@ -5155,11 +5258,11 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 340 }}>
             <div style={{ fontSize: 40, textAlign: "center", marginBottom: 8 }}>🗑️</div>
             <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>Clear {clearConfirm.name}?</div>
-            <div style={{ fontSize: 13, color: "#6B6459", textAlign: "center", marginBottom: 18 }}>
+            <div style={{ fontSize: 13, color: "#5C6180", textAlign: "center", marginBottom: 18 }}>
               This empties their details from Bed {clearConfirm.bedIndex + 1} in this form. It won't take effect until you press Save Changes.
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setClearConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setClearConfirm(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
               <button onClick={() => { clearTenant(clearConfirm.bedIndex); setClearConfirm(null); }} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: "#A83D2A", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Yes, Clear</button>
             </div>
           </div>
@@ -5175,7 +5278,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 420, maxHeight: "88vh", overflowY: "auto" }}>
             <div style={{ fontSize: 40, textAlign: "center", marginBottom: 8 }}>🔒</div>
             <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 6 }}>Deposit still held</div>
-            <div style={{ fontSize: 13, color: "#6B6459", textAlign: "center", marginBottom: 18, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 13, color: "#5C6180", textAlign: "center", marginBottom: 18, lineHeight: 1.6 }}>
               {depositWarning.length > 1 ? "These tenants still have" : "This tenant still has"} a security deposit that hasn't been returned. You can return it now, or skip and handle it later from Deposits.
             </div>
 
@@ -5183,9 +5286,9 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
               {depositWarning.map((entry) => {
                 const rs = returnState[entry.bed] || { amount: String(entry.depositAmount), mode: "Cash", modeOther: "", note: "", step: "form" };
                 return (
-                  <div key={entry.bed} style={{ border: "1.5px solid #DCD5C6", borderRadius: 12, padding: 14, background: "#F6F3EA" }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{entry.name} <span style={{ fontWeight: 500, color: "#9C9585", fontSize: 12 }}>(Bed {entry.bed})</span></div>
-                    <div style={{ fontSize: 12, color: "#6B6459", marginBottom: 10 }}>Collected ₹{Number(entry.depositAmount).toLocaleString("en-IN")}</div>
+                  <div key={entry.bed} style={{ border: "1.5px solid #DFE2F0", borderRadius: 12, padding: 14, background: "#F5F6FC" }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{entry.name} <span style={{ fontWeight: 500, color: "#7F85A6", fontSize: 12 }}>(Bed {entry.bed})</span></div>
+                    <div style={{ fontSize: 12, color: "#5C6180", marginBottom: 10 }}>Collected ₹{Number(entry.depositAmount).toLocaleString("en-IN")}</div>
 
                     {rs.step === "done" && (
                       <div style={{ fontSize: 13, fontWeight: 700, color: "#2F6B44", background: "#EBF3EC", borderRadius: 8, padding: "8px 10px" }}>
@@ -5195,13 +5298,13 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
 
                     {rs.step === "form" && (
                       <>
-                        <label style={{ fontSize: 10.5, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 4 }}>AMOUNT TO RETURN</label>
+                        <label style={{ fontSize: 10.5, fontWeight: 700, color: "#5C6180", display: "block", marginBottom: 4 }}>AMOUNT TO RETURN</label>
                         <div style={{ position: "relative", marginBottom: 10 }}>
-                          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#6B6459", fontWeight: 700 }}>₹</span>
+                          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#5C6180", fontWeight: 700 }}>₹</span>
                           <input type="number" min="0" value={rs.amount} onChange={e => patchReturnState(entry.bed, { amount: e.target.value })}
                             style={{ ...inputStyle, padding: "8px 10px 8px 24px", fontSize: 13 }} />
                         </div>
-                        <label style={{ fontSize: 10.5, fontWeight: 700, color: "#6B6459", display: "block", marginBottom: 4 }}>NOTE (optional)</label>
+                        <label style={{ fontSize: 10.5, fontWeight: 700, color: "#5C6180", display: "block", marginBottom: 4 }}>NOTE (optional)</label>
                         <input value={rs.note} onChange={e => patchReturnState(entry.bed, { note: e.target.value })} placeholder="e.g. ₹500 deducted for damage"
                           style={{ ...inputStyle, padding: "8px 10px", fontSize: 13, marginBottom: 10 }} />
                         <PaymentModeSelector mode={rs.mode} setMode={m => patchReturnState(entry.bed, { mode: m })} otherText={rs.modeOther} setOtherText={t => patchReturnState(entry.bed, { modeOther: t })} />
@@ -5213,11 +5316,11 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
 
                     {rs.step === "confirm" && (
                       <div>
-                        <div style={{ fontSize: 13, color: "#1D3833", marginBottom: 10, lineHeight: 1.5 }}>
+                        <div style={{ fontSize: 13, color: "#1F2350", marginBottom: 10, lineHeight: 1.5 }}>
                           Confirm — you actually handed back <b>₹{Number(rs.amount).toLocaleString("en-IN")}</b> to <b>{entry.name}</b> via {rs.mode === "Other" ? (rs.modeOther || "Other") : rs.mode}?
                         </div>
                         <div style={{ display: "flex", gap: 8 }}>
-                          <button onClick={() => patchReturnState(entry.bed, { step: "form" })} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 12.5, cursor: "pointer" }}>Back</button>
+                          <button onClick={() => patchReturnState(entry.bed, { step: "form" })} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 12.5, cursor: "pointer" }}>Back</button>
                           <button onClick={() => returnDepositInline(entry)} style={{ flex: 2, padding: "9px 0", borderRadius: 9, border: "none", background: "#2F6B44", color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
                             ✅ Yes, I Returned It
                           </button>
@@ -5226,7 +5329,7 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
                     )}
 
                     {rs.step === "busy" && (
-                      <div style={{ fontSize: 13, color: "#9C9585", textAlign: "center", padding: "6px 0" }}>Saving…</div>
+                      <div style={{ fontSize: 13, color: "#7F85A6", textAlign: "center", padding: "6px 0" }}>Saving…</div>
                     )}
 
                     {rs.step === "error" && (
@@ -5249,16 +5352,16 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
               return (
                 <>
                   <div style={{ display: "flex", gap: 10 }}>
-                    <button onClick={() => setDepositWarning(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Go Back</button>
+                    <button onClick={() => setDepositWarning(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Go Back</button>
                     <button
                       disabled={hasError}
                       onClick={() => { setDepositWarning(null); saveEdit(); }}
-                      style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: hasError ? "#C9C0AC" : "#B8622E", color: "#fff", fontWeight: 700, fontSize: 14, cursor: hasError ? "not-allowed" : "pointer" }}
+                      style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: hasError ? "#C6CAE0" : "#BF7408", color: "#fff", fontWeight: 700, fontSize: 14, cursor: hasError ? "not-allowed" : "pointer" }}
                     >
                       Continue & Save
                     </button>
                   </div>
-                  <div style={{ fontSize: 11, color: hasError ? "#A83D2A" : "#9C9585", textAlign: "center", marginTop: 12, fontWeight: hasError ? 700 : 400 }}>
+                  <div style={{ fontSize: 11, color: hasError ? "#A83D2A" : "#7F85A6", textAlign: "center", marginTop: 12, fontWeight: hasError ? 700 : 400 }}>
                     {hasError ? "Fix the failed return above before saving — otherwise it will be lost." : "Any deposit left un-returned above will still show as owed in the Deposits tab."}
                   </div>
                 </>
@@ -5279,14 +5382,14 @@ function RoomsPage({ rooms, setRooms, activeFloor, setActiveFloor, onSaveRoom, i
               <div style={{ fontWeight: 800, fontSize: 18, textAlign: "center", marginBottom: 8 }}>
                 {hasOccupants ? "Can't delete this room" : "Delete this room?"}
               </div>
-              <div style={{ fontSize: 13, color: "#6B6459", textAlign: "center", marginBottom: 18 }}>
+              <div style={{ fontSize: 13, color: "#5C6180", textAlign: "center", marginBottom: 18 }}>
                 {hasOccupants
                   ? <>{FLOOR_LABELS[confirmDeleteRoom.floor]} Room {confirmDeleteRoom.number} still has {occupiedTenants.length} tenant{occupiedTenants.length !== 1 ? "s" : ""} ({occupiedTenants.map(t => t.name).join(", ")}). Please move or remove them from this room before deleting it.</>
                   : <>This will permanently delete <b>{FLOOR_LABELS[confirmDeleteRoom.floor]} Room {confirmDeleteRoom.number}</b>. This cannot be undone.</>
                 }
               </div>
               <div style={{ display: "flex", gap: 10 }}>
-                <button disabled={deletingRoom} onClick={() => setConfirmDeleteRoom(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+                <button disabled={deletingRoom} onClick={() => setConfirmDeleteRoom(null)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
                   {hasOccupants ? "Okay" : "Cancel"}
                 </button>
                 {!hasOccupants && (
@@ -5385,53 +5488,53 @@ function PastTenantMoneyPanel({ t }) {
   const paymentTotal = (payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
 
   return (
-    <div style={{ marginTop: 10, borderTop: "1px solid #F2EEE4", paddingTop: 10 }}>
-      <button onClick={toggle} style={{ fontSize: 12, fontWeight: 700, color: "#2B4B43", background: "#E7EFEA", border: "1.5px solid #A9C4B8", borderRadius: 8, padding: "6px 12px", cursor: "pointer" }}>
+    <div style={{ marginTop: 10, borderTop: "1px solid #EEF0F9", paddingTop: 10 }}>
+      <button onClick={toggle} style={{ fontSize: 12, fontWeight: 700, color: "#3A41A0", background: "#E9EBFA", border: "1.5px solid #B9BEEA", borderRadius: 8, padding: "6px 12px", cursor: "pointer" }}>
         {expanded ? "▲ Hide money history" : "💰 View payment & deposit history"}
       </button>
       {expanded && (
         <div style={{ marginTop: 10 }}>
-          {loading && <div style={{ fontSize: 12, color: "#9C9585" }}>Loading…</div>}
+          {loading && <div style={{ fontSize: 12, color: "#7F85A6" }}>Loading…</div>}
           {!loading && payments && (
             <>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 6 }}>
                 RENT PAYMENTS ({payments.length}){payments.length > 0 ? ` · ₹${paymentTotal.toLocaleString("en-IN")} total` : ""}
               </div>
               {payments.length === 0 ? (
-                <div style={{ fontSize: 12, color: "#9C9585", marginBottom: 12 }}>No rent payments on record for this stay.</div>
+                <div style={{ fontSize: 12, color: "#7F85A6", marginBottom: 12 }}>No rent payments on record for this stay.</div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
                   {payments.map(p => (
-                    <div key={p.id || p.receipt_no} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#F6F3EA", borderRadius: 8, padding: "7px 10px" }}>
-                      <div style={{ fontSize: 11, color: "#6B6459" }}>{fmtDateIST(new Date(p.paid_at), { day: "numeric", month: "short", year: "numeric" })} · {p.payment_mode || "mode not set"}</div>
+                    <div key={p.id || p.receipt_no} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#F5F6FC", borderRadius: 8, padding: "7px 10px" }}>
+                      <div style={{ fontSize: 11, color: "#5C6180" }}>{fmtDateIST(new Date(p.paid_at), { day: "numeric", month: "short", year: "numeric" })} · {p.payment_mode || "mode not set"}</div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ fontSize: 12, fontWeight: 800, color: "#2F6B44" }}>₹{Number(p.amount || 0).toLocaleString("en-IN")}</div>
-                        <button onClick={() => reprintPayment(p)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "1.5px solid #A9C4B8", background: "#E7EFEA", color: "#2B4B43", fontWeight: 700, cursor: "pointer" }}>🧾</button>
+                        <button onClick={() => reprintPayment(p)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "1.5px solid #B9BEEA", background: "#E9EBFA", color: "#3A41A0", fontWeight: 700, cursor: "pointer" }}>🧾</button>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 6 }}>SECURITY DEPOSIT ({(deposits || []).length})</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 6 }}>SECURITY DEPOSIT ({(deposits || []).length})</div>
               {(!deposits || deposits.length === 0) ? (
-                <div style={{ fontSize: 12, color: "#9C9585" }}>No deposit on record for this stay.</div>
+                <div style={{ fontSize: 12, color: "#7F85A6" }}>No deposit on record for this stay.</div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {deposits.map(d => (
-                    <div key={d.id} style={{ background: "#F6F3EA", borderRadius: 8, padding: "7px 10px" }}>
+                    <div key={d.id} style={{ background: "#F5F6FC", borderRadius: 8, padding: "7px 10px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div style={{ fontSize: 11, color: "#6B6459" }}>Collected {fmtDateIST(new Date(d.collected_at), { day: "numeric", month: "short", year: "numeric" })} · {d.payment_mode}</div>
+                        <div style={{ fontSize: 11, color: "#5C6180" }}>Collected {fmtDateIST(new Date(d.collected_at), { day: "numeric", month: "short", year: "numeric" })} · {d.payment_mode}</div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ fontSize: 12, fontWeight: 800, color: "#2B4B43" }}>₹{Number(d.amount || 0).toLocaleString("en-IN")}</div>
-                          <button onClick={() => reprintDepositCollected(d)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "1.5px solid #A9C4B8", background: "#E7EFEA", color: "#2B4B43", fontWeight: 700, cursor: "pointer" }}>🧾</button>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: "#3A41A0" }}>₹{Number(d.amount || 0).toLocaleString("en-IN")}</div>
+                          <button onClick={() => reprintDepositCollected(d)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "1.5px solid #B9BEEA", background: "#E9EBFA", color: "#3A41A0", fontWeight: 700, cursor: "pointer" }}>🧾</button>
                         </div>
                       </div>
                       {d.returned_at ? (
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, paddingTop: 4, borderTop: "1px dashed #DCD5C6" }}>
-                          <div style={{ fontSize: 11, color: "#6B6459" }}>Returned {fmtDateIST(new Date(d.returned_at), { day: "numeric", month: "short", year: "numeric" })} · {d.return_mode}{d.return_note ? ` · ${d.return_note}` : ""}</div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, paddingTop: 4, borderTop: "1px dashed #DFE2F0" }}>
+                          <div style={{ fontSize: 11, color: "#5C6180" }}>Returned {fmtDateIST(new Date(d.returned_at), { day: "numeric", month: "short", year: "numeric" })} · {d.return_mode}{d.return_note ? ` · ${d.return_note}` : ""}</div>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <div style={{ fontSize: 12, fontWeight: 800, color: "#57524A" }}>₹{Number(d.return_amount || 0).toLocaleString("en-IN")}</div>
-                            <button onClick={() => reprintDepositReturned(d)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "1.5px solid #DCD5C6", background: "#fff", color: "#6B6459", fontWeight: 700, cursor: "pointer" }}>🧾</button>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: "#454A6B" }}>₹{Number(d.return_amount || 0).toLocaleString("en-IN")}</div>
+                            <button onClick={() => reprintDepositReturned(d)} style={{ fontSize: 10, padding: "4px 8px", borderRadius: 6, border: "1.5px solid #DFE2F0", background: "#fff", color: "#5C6180", fontWeight: 700, cursor: "pointer" }}>🧾</button>
                           </div>
                         </div>
                       ) : (
@@ -5459,6 +5562,7 @@ function HistoryPage() {
   const [dateTo, setDateTo] = useState("");
   const [showExportPanel, setShowExportPanel] = useState(false);
   const [visibleCount, setVisibleCount] = useState(30);
+  const [selected, setSelected] = useState(null);
 
   useEffect(() => { setVisibleCount(30); }, [query, filterFloor]);
 
@@ -5469,15 +5573,8 @@ function HistoryPage() {
   }, []);
 
   const filtered = history.filter(t => {
-    const matchQ = !query ||
-      (t.name || "").toLowerCase().includes(query.toLowerCase()) ||
-      (t.phone || "").includes(query) ||
-      (t.aadhar_id || "").includes(query) ||
-      (t.father_name || "").toLowerCase().includes(query.toLowerCase()) ||
-      (t.guardian_name || "").toLowerCase().includes(query.toLowerCase()) ||
-      (t.city || "").toLowerCase().includes(query.toLowerCase()) ||
-      (t.occupation_place || "").toLowerCase().includes(query.toLowerCase()) ||
-      String(t.room_number).includes(query);
+    const hay = [t.name, t.phone, t.aadhar_id, t.father_name, t.guardian_name, t.city, t.occupation_place, t.room_number].join(" ").toLowerCase();
+    const matchQ = query.toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.includes(w));
     const matchF = filterFloor === "all" || String(t.floor) === filterFloor;
     return matchQ && matchF;
   });
@@ -5523,18 +5620,72 @@ function HistoryPage() {
     downloadCSV(buildCSV(dateFiltered), `${dateFrom}-to-${dateTo}`);
   }
 
+  function renderRecord(t) {
+    return (
+            <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: "1.5px solid #DFE2F0", display: "flex", alignItems: "flex-start", gap: 14 }}>
+              <div style={{ width: 42, height: 42, borderRadius: "50%", background: "#5C6180", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 16, flexShrink: 0, marginTop: 2 }}>
+                {(t.name||"?").charAt(0).toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{t.name}</div>
+                <div style={{ fontSize: 12, color: "#5C6180", marginTop: 2 }}>
+                  Floor {t.floor} · Room {t.room_number} · Bed {(t.bed_index||0)+1}
+                  {t.aadhar_id ? <span style={{ background: "#E9EBFA", color: "#3A41A0", borderRadius: 4, padding: "1px 6px", marginLeft: 6, fontSize: 10, fontWeight: 700 }}>🪪 {t.aadhar_id}</span> : ""}
+                </div>
+                {t.father_name && (
+                  <div style={{ fontSize: 11, color: "#2B2F52", marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span>👨 <b>Father:</b> {t.father_name}</span>
+                    {t.father_phone && <span style={{ color: "#5C6180" }}>{t.father_phone}</span>}
+                    {t.father_phone && <ContactButtons phone={t.father_phone} size="small" />}
+                  </div>
+                )}
+                {(t.city || t.address) && <div style={{ fontSize: 11, color: "#5C6180", marginTop: 3 }}>📍 {[t.city, t.address].filter(Boolean).join(", ")}</div>}
+                {t.occupation_place && <div style={{ fontSize: 11, color: "#5C6180", marginTop: 2 }}>💼 {t.occupation === "job" ? "Works at" : t.occupation === "college" ? "Studies at" : "At"}: {t.occupation_place}{t.occupation_id ? ` · ID: ${t.occupation_id}` : ""}</div>}
+                {t.reason_to_stay && <div style={{ fontSize: 11, color: "#7F85A6", marginTop: 2, fontStyle: "italic" }}>"{t.reason_to_stay}"</div>}
+                {t.guardian_name && (
+                  <div style={{ fontSize: 11, color: "#2B2F52", marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span>🛡️ <b>Guardian:</b> {t.guardian_name}</span>
+                    {t.guardian_phone && <span style={{ color: "#5C6180" }}>{t.guardian_phone}</span>}
+                    {t.guardian_phone && <ContactButtons phone={t.guardian_phone} size="small" />}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: "#7F85A6", marginTop: 5, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {t.admission_date && <span>📅 Joined: {fmt(t.admission_date)}</span>}
+                  {t.checkout_date && <span>🚪 Left: {fmt(t.checkout_date)}</span>}
+                  {t.archived_at && <span>🗃️ Archived: {fmtDateIST(new Date(t.archived_at))}</span>}
+                </div>
+                {t.documents_pdf_url ? (
+                  <a href={t.documents_pdf_url} target="_blank" rel="noopener noreferrer"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#3A41A0", background: "#E9EBFA", borderRadius: 6, padding: "3px 8px", marginTop: 5, textDecoration: "none", fontWeight: 600 }}>
+                    📄 View photos &amp; form (PDF)
+                  </a>
+                ) : (t.profile_pic_path || t.aadhar_front_path || t.aadhar_back_path || t.form_path) ? (
+                  <div style={{ fontSize: 10, color: "#7F85A6", marginTop: 5 }}>📎 Photos archiving…</div>
+                ) : null}
+                <PastTenantMoneyPanel t={t} />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+                <ContactButtons phone={t.phone} size="small" />
+                <div style={{ fontSize: 10, background: "#EEF0F9", color: "#5C6180", padding: "2px 8px", borderRadius: 99, fontWeight: 600 }}>
+                  {t.billing_type === "daily" ? "☀️ Per Day" : t.billing_type === "15day" ? "🔁 15-Day" : "📅 Monthly"}
+                </div>
+              </div>
+            </div>
+    );
+  }
+
   return (
     <div style={{ maxWidth: 960, margin: "0 auto", padding: "16px 12px 90px" }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 600, margin: "0 0 3px", fontFamily: FONT_DISPLAY }}>🗂️ Past Tenants</h1>
-          <p style={{ margin: 0, color: "#6B6459", fontSize: 14 }}>
+          <p style={{ margin: 0, color: "#5C6180", fontSize: 14 }}>
             {loading ? "Loading…" : `${history.length} total records in history`}
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setShowExportPanel(!showExportPanel)} style={{ padding: "10px 18px", background: showExportPanel ? "#1D3833" : "#F2EEE4", color: showExportPanel ? "#fff" : "#3A362E", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+          <button onClick={() => setShowExportPanel(!showExportPanel)} style={{ padding: "10px 18px", background: showExportPanel ? "#1F2350" : "#EEF0F9", color: showExportPanel ? "#fff" : "#2B2F52", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
             📤 Export
           </button>
           <button onClick={exportAll} style={{ padding: "10px 18px", background: "#3C8F5C", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
@@ -5545,29 +5696,29 @@ function HistoryPage() {
 
       {/* Export Panel */}
       {showExportPanel && (
-        <div style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", marginBottom: 18, border: "1.5px solid #DCD5C6", boxShadow: "0 2px 8px #0001" }}>
+        <div style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", marginBottom: 18, border: "1.5px solid #DFE2F0", boxShadow: "0 2px 8px #0001" }}>
           <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>📅 Export by Date Range</div>
-          <div style={{ fontSize: 12, color: "#6B6459", marginBottom: 12 }}>Select the period you want to export — based on when the tenant was archived (removed/replaced)</div>
+          <div style={{ fontSize: 12, color: "#5C6180", marginBottom: 12 }}>Select the period you want to export — based on when the tenant was archived (removed/replaced)</div>
           <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 140 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 5 }}>FROM DATE</div>
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ ...inputStyle, color: dateFrom ? "#1D3833" : "#9C9585" }} />
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 5 }}>FROM DATE</div>
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ ...inputStyle, color: dateFrom ? "#1F2350" : "#7F85A6" }} />
             </div>
             <div style={{ flex: 1, minWidth: 140 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6459", marginBottom: 5 }}>TO DATE</div>
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ ...inputStyle, color: dateTo ? "#1D3833" : "#9C9585" }} />
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#5C6180", marginBottom: 5 }}>TO DATE</div>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ ...inputStyle, color: dateTo ? "#1F2350" : "#7F85A6" }} />
             </div>
-            <button onClick={exportDateRange} style={{ padding: "9px 20px", background: "#2B4B43", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+            <button onClick={exportDateRange} style={{ padding: "9px 20px", background: "#3A41A0", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
               📥 Download {dateFrom && dateTo ? `(${dateFiltered.length} records)` : ""}
             </button>
           </div>
           {dateFrom && dateTo && (
-            <div style={{ marginTop: 10, fontSize: 12, color: "#6B6459" }}>
+            <div style={{ marginTop: 10, fontSize: 12, color: "#5C6180" }}>
               📊 {dateFiltered.length} records from {fmt(dateFrom)} to {fmt(dateTo)}
             </div>
           )}
-          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #F2EEE4" }}>
-            <div style={{ fontSize: 11, color: "#9C9585", fontWeight: 600, marginBottom: 8 }}>QUICK SELECT</div>
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #EEF0F9" }}>
+            <div style={{ fontSize: 11, color: "#7F85A6", fontWeight: 600, marginBottom: 8 }}>QUICK SELECT</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {[
                 { label: "This Month", fn: () => { const n = istNow(); setDateFrom(`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-01`); setDateTo(istDateStr(n)); }},
@@ -5576,7 +5727,7 @@ function HistoryPage() {
                 { label: "This Year", fn: () => { const n = istNow(); setDateFrom(`${n.getFullYear()}-01-01`); setDateTo(istDateStr(n)); }},
                 { label: "Last Year", fn: () => { const y = istNow().getFullYear()-1; setDateFrom(`${y}-01-01`); setDateTo(`${y}-12-31`); }},
               ].map(q => (
-                <button key={q.label} onClick={q.fn} style={{ padding: "5px 12px", borderRadius: 8, border: "1.5px solid #DCD5C6", background: "#F6F3EA", fontSize: 12, cursor: "pointer", fontWeight: 500, color: "#3A362E" }}>
+                <button key={q.label} onClick={q.fn} style={{ padding: "5px 12px", borderRadius: 8, border: "1.5px solid #DFE2F0", background: "#F5F6FC", fontSize: 12, cursor: "pointer", fontWeight: 500, color: "#2B2F52" }}>
                   {q.label}
                 </button>
               ))}
@@ -5595,92 +5746,56 @@ function HistoryPage() {
             onChange={e => setQuery(e.target.value)}
             style={{ ...inputStyle, paddingLeft: 36, borderRadius: 10 }}
           />
-          {query && <button onClick={() => setQuery("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "#DCD5C6", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", fontSize: 11 }}>✕</button>}
+          {query && <button onClick={() => setQuery("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "#DFE2F0", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", fontSize: 11 }}>✕</button>}
         </div>
         {["all", ...FLOORS].map(f => (
           <button key={f} onClick={() => setFilterFloor(String(f))} style={{
             padding: "8px 14px", borderRadius: 8,
-            border: "1.5px solid " + (filterFloor === String(f) ? "#1D3833" : "#DCD5C6"),
-            background: filterFloor === String(f) ? "#1D3833" : "#fff",
-            color: filterFloor === String(f) ? "#fff" : "#6B6459",
+            border: "1.5px solid " + (filterFloor === String(f) ? "#1F2350" : "#DFE2F0"),
+            background: filterFloor === String(f) ? "#1F2350" : "#fff",
+            color: filterFloor === String(f) ? "#fff" : "#5C6180",
             fontWeight: 500, fontSize: 12, cursor: "pointer",
           }}>{f === "all" ? "All Floors" : FLOOR_LABELS[f]}</button>
         ))}
       </div>
 
-      <div style={{ fontSize: 12, color: "#9C9585", marginBottom: 14 }}>
+      {!selected && <div style={{ fontSize: 12, color: "#7F85A6", marginBottom: 14 }}>
         Showing {Math.min(visibleCount, filtered.length)} of {filtered.length} records{query ? ` matching "${query}"` : ""}
-      </div>
+      </div>}
 
       {/* Records */}
       {loading ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: "#9C9585" }}>
+        <div style={{ textAlign: "center", padding: "48px 0", color: "#7F85A6" }}>
           <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>Loading history…
         </div>
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: "#9C9585" }}>
+        <div style={{ textAlign: "center", padding: "48px 0", color: "#7F85A6" }}>
           <div style={{ fontSize: 36, marginBottom: 10 }}>🗂️</div>
           <div style={{ fontSize: 16, fontWeight: 600 }}>No history yet</div>
           <div style={{ fontSize: 13, marginTop: 4 }}>Past tenants appear here automatically when you replace or clear them from a room</div>
         </div>
+      ) : selected ? (
+        <div>
+          <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", padding: "0 0 12px", fontSize: 14, fontWeight: 700, color: "#3A41A0", cursor: "pointer" }}>‹ Back to results</button>
+          {renderRecord(selected)}
+        </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {filtered.slice(0, visibleCount).map((t, i) => (
-            <div key={i} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: "1.5px solid #DCD5C6", display: "flex", alignItems: "flex-start", gap: 14 }}>
-              <div style={{ width: 42, height: 42, borderRadius: "50%", background: "#6B6459", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 16, flexShrink: 0, marginTop: 2 }}>
-                {(t.name||"?").charAt(0).toUpperCase()}
-              </div>
+            <button key={i} onClick={() => setSelected(t)} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", background: "#fff", border: "1.5px solid #DFE2F0", borderRadius: 12, padding: "12px 14px", cursor: "pointer", color: "inherit" }}>
+              <div style={{ width: 42, height: 42, borderRadius: "50%", background: "#E9EBFA", color: "#3A41A0", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 16, flexShrink: 0 }}>{(t.name || "?").charAt(0).toUpperCase()}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{t.name}</div>
-                <div style={{ fontSize: 12, color: "#6B6459", marginTop: 2 }}>
-                  Floor {t.floor} · Room {t.room_number} · Bed {(t.bed_index||0)+1}
-                  {t.aadhar_id ? <span style={{ background: "#E7EFEA", color: "#2B4B43", borderRadius: 4, padding: "1px 6px", marginLeft: 6, fontSize: 10, fontWeight: 700 }}>🪪 {t.aadhar_id}</span> : ""}
-                </div>
-                {t.father_name && (
-                  <div style={{ fontSize: 11, color: "#3A362E", marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span>👨 <b>Father:</b> {t.father_name}</span>
-                    {t.father_phone && <span style={{ color: "#6B6459" }}>{t.father_phone}</span>}
-                    {t.father_phone && <ContactButtons phone={t.father_phone} size="small" />}
-                  </div>
-                )}
-                {(t.city || t.address) && <div style={{ fontSize: 11, color: "#6B6459", marginTop: 3 }}>📍 {[t.city, t.address].filter(Boolean).join(", ")}</div>}
-                {t.occupation_place && <div style={{ fontSize: 11, color: "#6B6459", marginTop: 2 }}>💼 {t.occupation === "job" ? "Works at" : t.occupation === "college" ? "Studies at" : "At"}: {t.occupation_place}{t.occupation_id ? ` · ID: ${t.occupation_id}` : ""}</div>}
-                {t.reason_to_stay && <div style={{ fontSize: 11, color: "#9C9585", marginTop: 2, fontStyle: "italic" }}>"{t.reason_to_stay}"</div>}
-                {t.guardian_name && (
-                  <div style={{ fontSize: 11, color: "#3A362E", marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span>🛡️ <b>Guardian:</b> {t.guardian_name}</span>
-                    {t.guardian_phone && <span style={{ color: "#6B6459" }}>{t.guardian_phone}</span>}
-                    {t.guardian_phone && <ContactButtons phone={t.guardian_phone} size="small" />}
-                  </div>
-                )}
-                <div style={{ fontSize: 11, color: "#9C9585", marginTop: 5, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  {t.admission_date && <span>📅 Joined: {fmt(t.admission_date)}</span>}
-                  {t.checkout_date && <span>🚪 Left: {fmt(t.checkout_date)}</span>}
-                  {t.archived_at && <span>🗃️ Archived: {fmtDateIST(new Date(t.archived_at))}</span>}
-                </div>
-                {t.documents_pdf_url ? (
-                  <a href={t.documents_pdf_url} target="_blank" rel="noopener noreferrer"
-                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#2B4B43", background: "#E7EFEA", borderRadius: 6, padding: "3px 8px", marginTop: 5, textDecoration: "none", fontWeight: 600 }}>
-                    📄 View photos &amp; form (PDF)
-                  </a>
-                ) : (t.profile_pic_path || t.aadhar_front_path || t.aadhar_back_path || t.form_path) ? (
-                  <div style={{ fontSize: 10, color: "#9C9585", marginTop: 5 }}>📎 Photos archiving…</div>
-                ) : null}
-                <PastTenantMoneyPanel t={t} />
+                <div style={{ fontSize: 12, color: "#5C6180" }}>Floor {t.floor} · Room {t.room_number}{t.checkout_date ? ` · Left ${fmt(t.checkout_date)}` : ""}</div>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
-                <ContactButtons phone={t.phone} size="small" />
-                <div style={{ fontSize: 10, background: "#F2EEE4", color: "#6B6459", padding: "2px 8px", borderRadius: 99, fontWeight: 600 }}>
-                  {t.billing_type === "daily" ? "☀️ Per Day" : t.billing_type === "15day" ? "🔁 15-Day" : "📅 Monthly"}
-                </div>
-              </div>
-            </div>
+              <span style={{ color: "#7F85A6", fontSize: 18 }}>›</span>
+            </button>
           ))}
         </div>
       )}
-      {!loading && visibleCount < filtered.length && (
+      {!loading && !selected && visibleCount < filtered.length && (
         <div style={{ textAlign: "center", marginTop: 16 }}>
-          <button onClick={() => setVisibleCount(v => v + 30)} style={{ padding: "10px 22px", borderRadius: 10, border: "1.5px solid #DCD5C6", background: "#fff", color: "#3A362E", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+          <button onClick={() => setVisibleCount(v => v + 30)} style={{ padding: "10px 22px", borderRadius: 10, border: "1.5px solid #DFE2F0", background: "#fff", color: "#2B2F52", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
             Load 30 more ({filtered.length - visibleCount} remaining)
           </button>
         </div>
@@ -5693,17 +5808,17 @@ function HistoryPage() {
 function LoginPage() {
   const [loading, setLoading] = useState(false);
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(160deg, #1D3833 0%, #24413A 55%, #2C4A42 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(160deg, #1F2350 0%, #272B5E 55%, #30356C 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Inter', system-ui, sans-serif" }}>
       <div style={{ background: "#fff", borderRadius: 24, padding: "44px 32px", width: "100%", maxWidth: 400, boxShadow: "0 32px 80px #0006", textAlign: "center" }}>
         <div style={{ fontSize: 54, marginBottom: 8 }}>🏨</div>
-        <div style={{ fontWeight: 600, fontSize: 32, color: "#1D3833", marginBottom: 4, fontFamily: FONT_DISPLAY }}>Turiya Hostel</div>
+        <div style={{ fontWeight: 600, fontSize: 32, color: "#1F2350", marginBottom: 4, fontFamily: FONT_DISPLAY }}>Turiya Hostel</div>
         <div style={{ fontSize: 13, color: "#A9822F", fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: 34 }}>Turiya Girls Hostel</div>
         <button
           onClick={() => { setLoading(true); supabaseAuth.signInWithGoogle(); }}
           disabled={loading}
-          style={{ width: "100%", padding: "16px 20px", border: "2px solid #DCD5C6", borderRadius: 14, background: loading ? "#F6F3EA" : "#fff", cursor: loading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, fontSize: 16, fontWeight: 700, color: "#1D3833", transition: "all 0.15s" }}
+          style={{ width: "100%", padding: "16px 20px", border: "2px solid #DFE2F0", borderRadius: 14, background: loading ? "#F5F6FC" : "#fff", cursor: loading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, fontSize: 16, fontWeight: 700, color: "#1F2350", transition: "all 0.15s" }}
           onMouseEnter={e => { if (!loading) e.currentTarget.style.borderColor = "#A9822F"; }}
-          onMouseLeave={e => e.currentTarget.style.borderColor = "#DCD5C6"}
+          onMouseLeave={e => e.currentTarget.style.borderColor = "#DFE2F0"}
         >
           {loading ? "Redirecting…" : (
             <>
@@ -5712,7 +5827,7 @@ function LoginPage() {
             </>
           )}
         </button>
-        <div style={{ marginTop: 22, fontSize: 13, color: "#9C9585" }}>Only approved accounts can access this system</div>
+        <div style={{ marginTop: 22, fontSize: 13, color: "#7F85A6" }}>Only approved accounts can access this system</div>
       </div>
     </div>
   );
@@ -5721,20 +5836,20 @@ function LoginPage() {
 // ── PENDING PAGE ──────────────────────────────────────────────
 function PendingPage({ user, userRole }) {
   return (
-    <div style={{ minHeight: "100vh", background: "#F1EFE9", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: "#F4F5FA", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Inter', system-ui, sans-serif" }}>
       <div style={{ background: "#fff", borderRadius: 24, padding: "44px 32px", width: "100%", maxWidth: 400, boxShadow: "0 8px 32px #0002", textAlign: "center" }}>
         <div style={{ fontSize: 50, marginBottom: 12 }}>{userRole?.role === "rejected" ? "❌" : "⏳"}</div>
-        <div style={{ fontWeight: 800, fontSize: 21, color: "#1D3833", marginBottom: 8 }}>
+        <div style={{ fontWeight: 800, fontSize: 21, color: "#1F2350", marginBottom: 8 }}>
           {userRole?.role === "rejected" ? "Access Denied" : "Waiting for Approval"}
         </div>
-        <div style={{ fontSize: 14, color: "#6B6459", marginBottom: 8 }}>Logged in as</div>
-        <div style={{ fontWeight: 700, color: "#1D3833", marginBottom: 16, fontSize: 15 }}>{user?.email}</div>
-        <div style={{ fontSize: 14, color: "#6B6459", marginBottom: 30, lineHeight: 1.7 }}>
+        <div style={{ fontSize: 14, color: "#5C6180", marginBottom: 8 }}>Logged in as</div>
+        <div style={{ fontWeight: 700, color: "#1F2350", marginBottom: 16, fontSize: 15 }}>{user?.email}</div>
+        <div style={{ fontSize: 14, color: "#5C6180", marginBottom: 30, lineHeight: 1.7 }}>
           {userRole?.role === "rejected"
             ? "Your access request was rejected. Contact the admin if you think this is a mistake."
             : "Your request has been sent to the admin. You'll get access once they approve your account."}
         </div>
-        <button onClick={supabaseAuth.signOut} style={{ padding: "13px 30px", background: "#1D3833", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+        <button onClick={supabaseAuth.signOut} style={{ padding: "13px 30px", background: "#1F2350", color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
           Sign Out
         </button>
       </div>
@@ -5768,10 +5883,10 @@ function UsersPage({ currentUser }) {
   }
 
   const roleColors = {
-    admin: { bg: "#E7EFEA", color: "#2B4B43", label: "Admin" },
+    admin: { bg: "#E9EBFA", color: "#3A41A0", label: "Admin" },
     manager: { bg: "#EBF3EC", color: "#2F6B44", label: "Manager" },
     worker: { bg: "#FAF3E3", color: "#6E4813", label: "Worker" },
-    pending: { bg: "#fff7ed", color: "#A8481F", label: "Pending" },
+    pending: { bg: "#FFF6E4", color: "#A15F06", label: "Pending" },
     rejected: { bg: "#FBEEEA", color: "#8F3120", label: "Rejected" },
   };
 
@@ -5783,7 +5898,7 @@ function UsersPage({ currentUser }) {
     <div style={{ maxWidth: 800, margin: "0 auto", padding: "16px 12px 90px" }}>
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 24, fontWeight: 600, margin: "0 0 3px", fontFamily: FONT_DISPLAY }}>👥 Manage Users</h1>
-        <p style={{ margin: 0, color: "#6B6459", fontSize: 14 }}>{users.length} total users</p>
+        <p style={{ margin: 0, color: "#5C6180", fontSize: 14 }}>{users.length} total users</p>
       </div>
 
       {/* Pending approvals */}
@@ -5797,11 +5912,11 @@ function UsersPage({ currentUser }) {
             <div key={u.email} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: "2px solid #E3B45C", marginBottom: 8, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{u.name || "Unknown"}</div>
-                <div style={{ fontSize: 12, color: "#6B6459" }}>{u.email}</div>
+                <div style={{ fontSize: 12, color: "#5C6180" }}>{u.email}</div>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {["worker", "manager", "admin"].map(role => (
-                  <button key={role} onClick={() => changeRole(u.email, role)} disabled={updating === u.email} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: role === "worker" ? "#1D3833" : role === "manager" ? "#2F6B44" : "#2B4B43", color: "#fff", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+                  <button key={role} onClick={() => changeRole(u.email, role)} disabled={updating === u.email} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: role === "worker" ? "#1F2350" : role === "manager" ? "#2F6B44" : "#3A41A0", color: "#fff", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
                     {updating === u.email ? "…" : `Approve as ${role.charAt(0).toUpperCase() + role.slice(1)}`}
                   </button>
                 ))}
@@ -5823,22 +5938,22 @@ function UsersPage({ currentUser }) {
             const isMe = u.email === currentUser?.email;
             const isProtected = u.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
             return (
-              <div key={u.email} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: isProtected ? "1.5px solid #A9C4B8" : "1.5px solid #DCD5C6", marginBottom: 8, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <div style={{ width: 38, height: 38, borderRadius: "50%", background: "#1D3833", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 15, flexShrink: 0 }}>
+              <div key={u.email} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: isProtected ? "1.5px solid #B9BEEA" : "1.5px solid #DFE2F0", marginBottom: 8, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ width: 38, height: 38, borderRadius: "50%", background: "#1F2350", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 15, flexShrink: 0 }}>
                   {(u.name || u.email).charAt(0).toUpperCase()}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{u.name || "Unknown"} {isMe && <span style={{ fontSize: 11, color: "#9C9585" }}>(you)</span>}</div>
-                  <div style={{ fontSize: 12, color: "#6B6459" }}>{u.email}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{u.name || "Unknown"} {isMe && <span style={{ fontSize: 11, color: "#7F85A6" }}>(you)</span>}</div>
+                  <div style={{ fontSize: 12, color: "#5C6180" }}>{u.email}</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ background: rc.bg, color: rc.color, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>{rc.label}</span>
                   {isProtected && (
-                    <span style={{ background: "#E7EFEA", color: "#2B4B43", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>🔒 Protected</span>
+                    <span style={{ background: "#E9EBFA", color: "#3A41A0", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>🔒 Protected</span>
                   )}
                   {!isMe && !isProtected && (
                     <select value={u.role} onChange={e => changeRole(u.email, e.target.value)} disabled={updating === u.email}
-                      style={{ padding: "6px 10px", borderRadius: 8, border: "1.5px solid #DCD5C6", fontSize: 12, fontWeight: 600, cursor: "pointer", background: "#F6F3EA" }}>
+                      style={{ padding: "6px 10px", borderRadius: 8, border: "1.5px solid #DFE2F0", fontSize: 12, fontWeight: 600, cursor: "pointer", background: "#F5F6FC" }}>
                       <option value="worker">Worker</option>
                       <option value="manager">Manager</option>
                       <option value="admin">Admin</option>
@@ -5860,12 +5975,12 @@ function UsersPage({ currentUser }) {
       {/* Rejected */}
       {rejected.length > 0 && (
         <div>
-          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10, color: "#9C9585" }}>❌ Rejected</div>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10, color: "#7F85A6" }}>❌ Rejected</div>
           {rejected.map(u => (
             <div key={u.email} style={{ background: "#fff", borderRadius: 12, padding: "12px 16px", border: "1.5px solid #EFCFC5", marginBottom: 8, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", opacity: 0.7 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>{u.name || "Unknown"}</div>
-                <div style={{ fontSize: 12, color: "#6B6459" }}>{u.email}</div>
+                <div style={{ fontSize: 12, color: "#5C6180" }}>{u.email}</div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => changeRole(u.email, "worker")} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "#EBF3EC", color: "#2F6B44", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
@@ -5880,8 +5995,8 @@ function UsersPage({ currentUser }) {
         </div>
       )}
 
-      {loading && <div style={{ textAlign: "center", padding: "40px 0", color: "#9C9585" }}>Loading users…</div>}
-      {!loading && users.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: "#9C9585" }}>No users yet.</div>}
+      {loading && <div style={{ textAlign: "center", padding: "40px 0", color: "#7F85A6" }}>Loading users…</div>}
+      {!loading && users.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: "#7F85A6" }}>No users yet.</div>}
     </div>
   );
 }
@@ -5902,7 +6017,7 @@ function App() {
 
   // Dark mode preference, persisted across sessions.
   const [theme, setTheme] = useState(() => {
-    try { return localStorage.getItem("turiya_theme") || "light"; } catch (e) { return "light"; }
+    try { return localStorage.getItem("turiya_theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); } catch (e) { return "light"; }
   });
   useEffect(() => {
     try { localStorage.setItem("turiya_theme", theme); } catch (e) {}
@@ -5997,10 +6112,10 @@ function App() {
 
   // Auth loading
   if (authLoading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: "Inter, system-ui, sans-serif", flexDirection: "column", gap: 16, background: "linear-gradient(160deg, #1D3833 0%, #24413A 55%, #2C4A42 100%)" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: "Inter, system-ui, sans-serif", flexDirection: "column", gap: 16, background: "linear-gradient(160deg, #1F2350 0%, #272B5E 55%, #30356C 100%)" }}>
       <div style={{ fontSize: 42 }}>🏨</div>
       <div style={{ fontSize: 21, fontWeight: 600, color: "#fff", fontFamily: FONT_DISPLAY }}>Turiya Hostel</div>
-      <div style={{ fontSize: 14, color: "#B8622E", fontWeight: 600 }}>Checking login…</div>
+      <div style={{ fontSize: 14, color: "#BF7408", fontWeight: 600 }}>Checking login…</div>
     </div>
   );
 
@@ -6012,24 +6127,24 @@ function App() {
 
   // Data loading
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: "Inter, system-ui, sans-serif", flexDirection: "column", gap: 16, background: "linear-gradient(160deg, #1D3833 0%, #24413A 55%, #2C4A42 100%)" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: "Inter, system-ui, sans-serif", flexDirection: "column", gap: 16, background: "linear-gradient(160deg, #1F2350 0%, #272B5E 55%, #30356C 100%)" }}>
       <div style={{ fontSize: 42 }}>🏨</div>
       <div style={{ fontSize: 21, fontWeight: 600, color: "#fff", fontFamily: FONT_DISPLAY }}>Loading Turiya Girls Hostel…</div>
-      <div style={{ fontSize: 14, color: "#B8622E", fontWeight: 600 }}>Connecting to database</div>
+      <div style={{ fontSize: 14, color: "#BF7408", fontWeight: 600 }}>Connecting to database</div>
     </div>
   );
 
   if (error) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: "Inter, system-ui, sans-serif", flexDirection: "column", gap: 16, background: "#F1EFE9", padding: 24 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: "Inter, system-ui, sans-serif", flexDirection: "column", gap: 16, background: "#F4F5FA", padding: 24 }}>
       <div style={{ fontSize: 40 }}>⚠️</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: "#C1543C" }}>Connection Error</div>
-      <div style={{ fontSize: 14, color: "#6B6459", textAlign: "center" }}>{error}</div>
-      <button onClick={() => window.location.reload()} style={{ padding: "10px 24px", background: "#1D3833", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontWeight: 600 }}>Try Again</button>
+      <div style={{ fontSize: 14, color: "#5C6180", textAlign: "center" }}>{error}</div>
+      <button onClick={() => window.location.reload()} style={{ padding: "10px 24px", background: "#1F2350", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontWeight: 600 }}>Try Again</button>
     </div>
   );
 
   return (
-    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh", background: "#F1EFE9", backgroundImage: "radial-gradient(#DCD5C6 1.1px, transparent 1.1px)", backgroundSize: "18px 18px", color: "#1D3833", paddingBottom: "env(safe-area-inset-bottom)", paddingTop: isOnline ? 0 : 38 }}>
+    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh", background: "#F4F5FA", color: "#1F2350", paddingBottom: "env(safe-area-inset-bottom)", paddingTop: isOnline ? 0 : 38 }}>
       {/* No-internet banner — like the browser's own offline strip. Sits
           fixed at the very top so it's visible no matter which page or
           modal is open, since that's exactly when a save/return is most
@@ -6055,14 +6170,18 @@ function App() {
           into one that's positioned relative to a container instead of the
           real screen, so nothing drifts or needs scrolling to reach. */}
       {theme === "dark" && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 99999, pointerEvents: "none",
-          backdropFilter: "invert(1) hue-rotate(180deg)",
-          WebkitBackdropFilter: "invert(1) hue-rotate(180deg)",
-        }} />
+        <>
+          {/* Photos are flipped back (the exact inverse of the layer below) so faces keep natural colors. */}
+          <style>{"img { filter: contrast(1.111) hue-rotate(180deg) invert(1); }"}</style>
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 99999, pointerEvents: "none",
+            backdropFilter: "invert(1) hue-rotate(180deg) contrast(0.9)",
+            WebkitBackdropFilter: "invert(1) hue-rotate(180deg) contrast(0.9)",
+          }} />
+        </>
       )}
       {saving && (
-        <div style={{ position: "fixed", bottom: 80, right: 16, background: "#1D3833", color: "#fff", padding: "10px 18px", borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 999, boxShadow: "0 4px 16px #0004" }}>
+        <div style={{ position: "fixed", bottom: 80, right: 16, background: "#1F2350", color: "#fff", padding: "10px 18px", borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 999, boxShadow: "0 4px 16px #0004" }}>
           💾 Saving…
         </div>
       )}
